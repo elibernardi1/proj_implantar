@@ -49,7 +49,7 @@ const cadastrar = async (req, res) => {
             rua: endereco.rua,
             bairro: endereco.bairro,
             cidade: endereco.cidade,
-            tipo: valores.tipo === 'ADMIN' ? 'ADMIN' : 'CLIENTE'
+            tipo: valores.tipo === 'CLIENTE'
         })
 
         const { senha, ...usuarioSemSenha } = dados.toJSON()
@@ -150,6 +150,10 @@ const atualizar = async (req, res) => {
     const id = req.params.id
     const valores = req.body
 
+    if (String(req.usuario.codUsuario) !== String(id) && req.usuario.tipo !== 'ADMIN') {
+        return res.status(403).json({ message: 'Sem permissão para alterar esse usuário' })
+    }
+
     if (!valores.nome || !valores.email || !valores.cep) {
         return res.status(400).json({ message: 'Campos Obrigatórios' })
     }
@@ -191,7 +195,13 @@ const atualizar = async (req, res) => {
 const atualizarParcial = async (req, res) => {
     const id = req.params.id
     const valores = req.body
+    delete valores.tipo
+    delete valores.codUsuario
 
+    if (String(req.usuario.codUsuario) !== String(id) && req.usuario.tipo !== 'ADMIN') {
+        return res.status(403).json({ message: 'Sem permissão para alterar esse usuário' })
+    }
+    
     try {
         const dados = await Usuario.findByPk(id)
         if (!dados) {
