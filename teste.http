@@ -1,0 +1,360 @@
+### =====================================================
+### Del Company - API - Arquivo de testes de integração
+### Usar com a extensão REST Client (VS Code)
+### Rode as requisições em ordem: cadastro -> login -> guarde o token -> demais rotas
+### =====================================================
+
+@baseUrl = http://localhost:3000
+@token = COLOQUE_AQUI_O_TOKEN_RETORNADO_NO_LOGIN
+@tokenAdmin = COLOQUE_AQUI_O_TOKEN_DE_UM_USUARIO_ADMIN
+
+### Healthcheck
+GET {{baseUrl}}/
+
+
+### =====================================================
+### USUÁRIOS
+### =====================================================
+
+### Cadastrar cliente (público) - CPF validado + endereço via ViaCEP
+POST {{baseUrl}}/usuarios
+Content-Type: application/json
+
+{
+  "nome": "Maria Silva",
+  "email": "maria.silva@example.com",
+  "senha": "senha123",
+  "cpf": "529.982.247-25",
+  "cep": "01310-100"
+}
+
+### Cadastrar admin (público, tipo explícito)
+POST {{baseUrl}}/usuarios
+Content-Type: application/json
+
+{
+  "nome": "Admin Del Company",
+  "email": "admin@delcompany.com",
+  "senha": "admin123",
+  "cpf": "111.444.777-35",
+  "cep": "88010-400",
+  "tipo": "ADMIN"
+}
+
+### Login
+POST {{baseUrl}}/login
+Content-Type: application/json
+
+{
+  "email": "maria.silva@example.com",
+  "senha": "senha123"
+}
+
+### Perfil do usuário logado (privada)
+GET {{baseUrl}}/usuarios/perfil
+Authorization: Bearer {{token}}
+
+### Atualização completa do usuário - PUT (privada)
+PUT {{baseUrl}}/usuarios/1
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "nome": "Maria Silva Santos",
+  "email": "maria.silva@example.com",
+  "cep": "01310-100"
+}
+
+### Atualização parcial do usuário - PATCH (privada)
+PATCH {{baseUrl}}/usuarios/1
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "senha": "novaSenha456"
+}
+
+### Listar usuários (privada - somente admin)
+GET {{baseUrl}}/usuarios
+Authorization: Bearer {{tokenAdmin}}
+
+### Consultar usuário por id (privada - somente admin)
+GET {{baseUrl}}/usuarios/1
+Authorization: Bearer {{tokenAdmin}}
+
+### Consultar usuários por nome (privada - somente admin)
+GET {{baseUrl}}/usuarios/buscar?nome=Maria
+Authorization: Bearer {{tokenAdmin}}
+
+### Apagar usuário (privada - somente admin)
+DELETE {{baseUrl}}/usuarios/2
+Authorization: Bearer {{tokenAdmin}}
+
+
+### =====================================================
+### CATEGORIAS
+### =====================================================
+
+### Listar categorias (público)
+GET {{baseUrl}}/categorias
+
+### Consultar categoria por id (público)
+GET {{baseUrl}}/categorias/1
+
+### Consultar categoria por nome (público)
+GET {{baseUrl}}/categorias/buscar?nome=Consultoria
+
+### Cadastrar categoria (privada - somente admin)
+POST {{baseUrl}}/categorias
+Authorization: Bearer {{tokenAdmin}}
+Content-Type: application/json
+
+{
+  "nome": "Consultoria em Licitações",
+  "descricao": "Serviços de assessoria em processos licitatórios"
+}
+
+### Atualizar categoria - PUT (privada - somente admin)
+PUT {{baseUrl}}/categorias/1
+Authorization: Bearer {{tokenAdmin}}
+Content-Type: application/json
+
+{
+  "nome": "Consultoria em Licitações",
+  "descricao": "Descrição atualizada"
+}
+
+### Atualizar categoria - PATCH (privada - somente admin)
+PATCH {{baseUrl}}/categorias/1
+Authorization: Bearer {{tokenAdmin}}
+Content-Type: application/json
+
+{
+  "descricao": "Nova descrição parcial"
+}
+
+### Apagar categoria (privada - somente admin)
+DELETE {{baseUrl}}/categorias/1
+Authorization: Bearer {{tokenAdmin}}
+
+
+### =====================================================
+### SERVIÇOS (equivalente ao "Produto" do PDF - vitrine também responde em /produtos)
+### =====================================================
+
+### Listar serviços / vitrine (público) - também disponível em /produtos
+GET {{baseUrl}}/servicos
+
+### GET /produtos (compatibilidade com o nome do PDF)
+GET {{baseUrl}}/produtos
+
+### Consultar serviço por id (público)
+GET {{baseUrl}}/servicos/1
+
+### Buscar serviço por nome e/ou categoria (público)
+GET {{baseUrl}}/servicos/buscar?nome=Consultoria&idCategoria=1
+
+### Cadastrar serviço (privada - somente admin)
+POST {{baseUrl}}/servicos
+Authorization: Bearer {{tokenAdmin}}
+Content-Type: application/json
+
+{
+  "nome": "Consultoria em Pregão Eletrônico",
+  "descricao": "Assessoria completa para participação em pregões eletrônicos",
+  "preco": 1500.00,
+  "imagem": "https://exemplo.com/imagem.png",
+  "capacidadeDisponivel": 10,
+  "idCategoria": 1
+}
+
+### Atualizar serviço - PUT (privada - somente admin)
+PUT {{baseUrl}}/servicos/1
+Authorization: Bearer {{tokenAdmin}}
+Content-Type: application/json
+
+{
+  "nome": "Consultoria em Pregão Eletrônico",
+  "descricao": "Descrição atualizada",
+  "preco": 1600.00,
+  "idCategoria": 1
+}
+
+### Atualizar serviço - PATCH (privada - somente admin)
+PATCH {{baseUrl}}/servicos/1
+Authorization: Bearer {{tokenAdmin}}
+Content-Type: application/json
+
+{
+  "preco": 1750.00
+}
+
+### Apagar serviço (privada - somente admin)
+DELETE {{baseUrl}}/servicos/1
+Authorization: Bearer {{tokenAdmin}}
+
+
+### =====================================================
+### ESTOQUE (capacidade de atendimento)
+### =====================================================
+
+### Registrar movimentação de ENTRADA (privada - somente admin)
+POST {{baseUrl}}/estoque
+Authorization: Bearer {{tokenAdmin}}
+Content-Type: application/json
+
+{
+  "idUsuario": 2,
+  "idServico": 1,
+  "data": "2026-09-01",
+  "qtdeMov": 10,
+  "tipo": "ENTRADA"
+}
+
+### Registrar movimentação de SAÍDA (privada - somente admin)
+POST {{baseUrl}}/estoque
+Authorization: Bearer {{tokenAdmin}}
+Content-Type: application/json
+
+{
+  "idUsuario": 2,
+  "idServico": 1,
+  "data": "2026-09-01",
+  "qtdeMov": 3,
+  "tipo": "SAIDA"
+}
+
+### Listar movimentações de estoque (privada - somente admin)
+GET {{baseUrl}}/estoque
+Authorization: Bearer {{tokenAdmin}}
+
+### Corrigir uma movimentação de estoque - PUT (privada - somente admin)
+PUT {{baseUrl}}/estoque/1
+Authorization: Bearer {{tokenAdmin}}
+Content-Type: application/json
+
+{
+  "qtdeMov": 8
+}
+
+
+### =====================================================
+### PEDIDOS (checkout) e ITENS DE PEDIDO
+### =====================================================
+
+### Finalizar pedido / checkout (privada - exige login)
+POST {{baseUrl}}/pedidos
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "itens": [
+    { "idServico": 1, "quantidade": 2 }
+  ],
+  "entrega": {
+    "orgaoResponsavel": "Prefeitura Municipal de Florianópolis",
+    "objetoLicitacao": "Aquisição de material de escritório",
+    "modalidade": "Pregão Eletrônico",
+    "dataAbertura": "2026-09-10",
+    "documentosNecessarios": "Certidão negativa, contrato social"
+  }
+}
+
+### Listar todos os pedidos (privada - somente admin)
+GET {{baseUrl}}/pedidos
+Authorization: Bearer {{tokenAdmin}}
+
+### Histórico de pedidos do cliente logado (privada)
+GET {{baseUrl}}/pedidos/meus-pedidos
+Authorization: Bearer {{token}}
+
+### Consultar pedido por id (privada)
+GET {{baseUrl}}/pedidos/1
+Authorization: Bearer {{token}}
+
+### Listar itens de pedido (privada - somente admin)
+GET {{baseUrl}}/itens-pedido
+Authorization: Bearer {{tokenAdmin}}
+
+### Consultar item de pedido por id (privada)
+GET {{baseUrl}}/itens-pedido/1
+Authorization: Bearer {{token}}
+
+
+### =====================================================
+### ENTREGAS (acompanhamento do processo licitatório)
+### =====================================================
+
+### Listar processos/entregas (privada)
+GET {{baseUrl}}/entregas
+Authorization: Bearer {{token}}
+
+### Buscar entregas por órgão responsável (privada)
+GET {{baseUrl}}/entregas/buscar?orgao=Prefeitura
+Authorization: Bearer {{token}}
+
+### Consultar entrega por id (privada)
+GET {{baseUrl}}/entregas/1
+Authorization: Bearer {{token}}
+
+### Atualizar entrega - PUT (privada - somente admin)
+PUT {{baseUrl}}/entregas/1
+Authorization: Bearer {{tokenAdmin}}
+Content-Type: application/json
+
+{
+  "orgaoResponsavel": "Prefeitura Municipal de Florianópolis",
+  "objetoLicitacao": "Aquisição de material de escritório",
+  "modalidade": "Pregão Eletrônico",
+  "situacao": "EM_ANDAMENTO"
+}
+
+### Atualizar situação da entrega - PATCH (privada - somente admin)
+PATCH {{baseUrl}}/entregas/1
+Authorization: Bearer {{tokenAdmin}}
+Content-Type: application/json
+
+{
+  "situacao": "ENTREGUE"
+}
+
+
+### =====================================================
+### RELATÓRIOS GERENCIAIS (dados para os gráficos chart.js)
+### =====================================================
+
+### Faturamento por categoria (privada - somente admin)
+GET {{baseUrl}}/relatorios/vendas
+Authorization: Bearer {{tokenAdmin}}
+
+### Capacidade disponível por categoria (privada - somente admin)
+GET {{baseUrl}}/relatorios/estoque
+Authorization: Bearer {{tokenAdmin}}
+
+
+### =====================================================
+### CASOS DE ERRO (para validar tratamento e HTTP 401/403/404)
+### =====================================================
+
+### Rota privada sem token -> 401
+GET {{baseUrl}}/usuarios/perfil
+
+### Rota privada com token inválido -> 401
+GET {{baseUrl}}/usuarios/perfil
+Authorization: Bearer token-invalido
+
+### Rota somente admin acessada por cliente comum -> 403
+GET {{baseUrl}}/usuarios
+Authorization: Bearer {{token}}
+
+### Cadastro com CPF matematicamente inválido -> 400
+POST {{baseUrl}}/usuarios
+Content-Type: application/json
+
+{
+  "nome": "Teste Inválido",
+  "email": "invalido@example.com",
+  "senha": "123456",
+  "cpf": "111.111.111-11",
+  "cep": "01310-100"
+}
