@@ -9,8 +9,9 @@ async function consultarCEP(cep) {
     }
 
     try {
-        const resposta = await axios.get(`https://viacep.com.br/ws/${cepLimpo}/json/`)
-
+        const resposta = await axios.get(`https://viacep.com.br/ws/${cepLimpo}/json/`, {
+            timeout: 8000
+        })
         if (resposta.data.erro) {
             return { erro: true, message: 'CEP não encontrado' }
         }
