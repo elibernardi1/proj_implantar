@@ -1,29 +1,39 @@
-require('dotenv').config()
-const jwt = require('jsonwebtoken')
+const cryptoJs = require('crypto-js')
+const CHAVE_SECRETA = 'del-company-segredo' // no padrão do professor, fica direto no código
 
-// Valida o header Authorization: Bearer <TOKEN_JWT>
 function autenticar(req, res, next) {
-    const authHeader = req.headers.authorization
+    const token = req.headers['authorization']
 
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        return res.status(401).json({ message: 'Token não informado' })
+    if (!token) {
+        return res.status(401).json({ message: 'Acesso negado! Faça o login!' })
     }
 
-    const token = authHeader.split(' ')[1]
-
     try {
-        const dadosToken = jwt.verify(token, process.env.JWT_SECRET)
-        req.usuario = dadosToken // { codUsuario, tipo }
+        const bytes = cryptoJs.AES.decrypt(token, CHAVE_SECRETA)
+        const dadosDescriptografados = bytes.toString(cryptoJs.enc.Utf8)
+
+        if (!dadosDescriptografados) {
+            return res.status(403).json({ message: 'Acesso proibido!' })
+        }
+
+        const payload = JSON.parse(dadosDescriptografados)
+
+        if (Date.now() > payload.expiraEm) {
+            return res.status(401).json({ message: 'Sessão Expirada! Faça Login!' })
+        }
+
+        req.usuario = payload
         next()
+
     } catch (err) {
-        return res.status(401).json({ message: 'Token inválido ou expirado' })
+        console.error('Falha na autenticação', err)
+        return res.status(401).json({ message: 'Falha na autenticação' })
     }
 }
 
-// Uso opcional: garante que só ADMIN acesse a rota (ex: gestão de estoque/serviços)
 function somenteAdmin(req, res, next) {
-    if (!req.usuario || req.usuario.tipo !== 'ADMIN') {
-        return res.status(403).json({ message: 'Acesso permitido somente para administradores' })
+    if (req.usuario.tipo !== 'ADMIN') {
+        return res.status(403).json({ message: 'Acesso restrito a administradores!' })
     }
     next()
 }

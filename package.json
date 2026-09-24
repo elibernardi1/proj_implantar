@@ -1,24 +1,17 @@
 {
-  "name": "del-backend",
+  "name": "proj_implantar",
   "version": "1.0.0",
-  "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "sync": "node sync.js",
-    "test": "node --test test/"
+    "sync": "node sync.js"
   },
-  "keywords": [],
-  "author": "",
-  "license": "MIT",
-  "description": "Backend do e-commerce de serviços de licitação da Del Company",
   "dependencies": {
-    "axios": "^1.7.9",
-    "bcrypt": "^5.1.1",
     "cors": "^2.8.6",
-    "dotenv": "^17.4.2",
-    "express": "^5.2.1",
-    "jsonwebtoken": "^9.0.2",
-    "mysql2": "^3.24.2",
-    "sequelize": "^6.37.8"
+    "crypto-js": "^4.2.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "mysql2": "^3.24.4",
+    "sequelize": "^6.37.8",
+    "axios": "^1.7.2"
   }
 }
