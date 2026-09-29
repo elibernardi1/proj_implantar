@@ -91,3 +91,153 @@ const login = async (req, res) => {
         res.status(500).json({ message: 'Não foi possível fazer o login!' })
     }
 }
+
+const listar = async (req, res) => {
+    try {
+        const dados = await Usuario.findAll({ attributes: { exclude: ['senha'] } })
+        res.status(200).json(dados)
+    } catch (err) {
+        console.error('Erro ao listar usuários!', err)
+        res.status(500).json({ message: 'Erro ao listar usuários!' })
+    }
+}
+
+const consultar = async (req, res) => {
+    const { id } = req.params
+    const { nome } = req.query
+
+    try {
+        if (nome) {
+            const dados = await Usuario.findAll({
+                where: { nome: { [Op.like]: `%${nome}%` } },
+                attributes: { exclude: ['senha'] }
+            })
+            return res.status(200).json(dados)
+        }
+
+        const dados = await Usuario.findByPk(id, { attributes: { exclude: ['senha'] } })
+        if (!dados) {
+            return res.status(404).json({ message: 'Usuário não encontrado!' })
+        }
+        res.status(200).json(dados)
+    } catch (err) {
+        console.error('Erro ao consultar usuário!', err)
+        res.status(500).json({ message: 'Erro ao consultar usuário!' })
+    }
+}
+
+const perfil = async (req, res) => {
+    try {
+        const dados = await Usuario.findByPk(req.usuario.codUsuario, { attributes: { exclude: ['senha'] } })
+        if (!dados) {
+            return res.status(404).json({ message: 'Usuário não encontrado!' })
+        }
+        res.status(200).json(dados)
+    } catch (err) {
+        console.error('Erro ao consultar perfil!', err)
+        res.status(500).json({ message: 'Erro ao consultar perfil!' })
+    }
+}
+
+const atualizar = async (req, res) => {
+    const id = req.params.id
+    const valores = req.body
+
+    if (String(req.usuario.codUsuario) !== String(id) && req.usuario.tipo !== 'ADMIN') {
+        return res.status(403).json({ message: 'Sem permissão para alterar esse usuário' })
+    }
+
+    if (!valores.nome || !valores.email || !valores.cep) {
+        return res.status(400).json({ message: 'Campos Obrigatórios' })
+    }
+
+    try {
+        const dados = await Usuario.findByPk(id)
+        if (!dados) {
+            return res.status(404).json({ message: 'Usuário não encontrado' })
+        }
+
+        const endereco = await consultarCEP(valores.cep)
+        if (endereco.erro) {
+            return res.status(400).json({ message: endereco.message })
+        }
+
+        const atualizacao = {
+            nome: valores.nome,
+            email: valores.email,
+            cep: valores.cep,
+            rua: endereco.rua,
+            bairro: endereco.bairro,
+            cidade: endereco.cidade
+        }
+
+        if (valores.senha) {
+            atualizacao.senha = cryptoJs.AES.encrypt(valores.senha, CHAVE_SECRETA).toString()
+        }
+
+        await Usuario.update(atualizacao, { where: { codUsuario: id } })
+        const atualizado = await Usuario.findByPk(id, { attributes: { exclude: ['senha'] } })
+        res.status(200).json({ message: 'Usuário atualizado com sucesso!', dados: atualizado })
+    } catch (err) {
+        console.error('Erro ao atualizar usuário!', err)
+        res.status(500).json({ message: 'Erro ao atualizar usuário!' })
+    }
+}
+
+const atualizarParcial = async (req, res) => {
+    const id = req.params.id
+    const valores = req.body
+    delete valores.tipo
+    delete valores.codUsuario
+
+    if (String(req.usuario.codUsuario) !== String(id) && req.usuario.tipo !== 'ADMIN') {
+        return res.status(403).json({ message: 'Sem permissão para alterar esse usuário' })
+    }
+
+    try {
+        const dados = await Usuario.findByPk(id)
+        if (!dados) {
+            return res.status(404).json({ message: 'Usuário não encontrado' })
+        }
+
+        if (valores.senha) {
+            valores.senha = cryptoJs.AES.encrypt(valores.senha, CHAVE_SECRETA).toString()
+        }
+
+        if (valores.cep) {
+            const endereco = await consultarCEP(valores.cep)
+            if (endereco.erro) {
+                return res.status(400).json({ message: endereco.message })
+            }
+            valores.rua = endereco.rua
+            valores.bairro = endereco.bairro
+            valores.cidade = endereco.cidade
+        }
+
+        await Usuario.update(valores, { where: { codUsuario: id } })
+        const atualizado = await Usuario.findByPk(id, { attributes: { exclude: ['senha'] } })
+        res.status(200).json({ message: 'Usuário atualizado com sucesso!', dados: atualizado })
+    } catch (err) {
+        console.error('Erro ao atualizar usuário!', err)
+        res.status(500).json({ message: 'Erro ao atualizar usuário!' })
+    }
+}
+
+const apagar = async (req, res) => {
+    const id = req.params.id
+
+    try {
+        const dados = await Usuario.findByPk(id)
+        if (!dados) {
+            return res.status(404).json({ message: 'Usuário não encontrado' })
+        }
+
+        await Usuario.destroy({ where: { codUsuario: id } })
+        res.status(200).json({ message: 'Usuário excluído com sucesso!' })
+    } catch (err) {
+        console.error('Erro ao excluir usuário!', err)
+        res.status(500).json({ message: 'Erro ao excluir usuário!' })
+    }
+}
+
+module.exports = { cadastrar, login, listar, consultar, perfil, atualizar, atualizarParcial, apagar }

@@ -1,4 +1,3 @@
-// Validação matemática real do CPF (cálculo dos dois dígitos verificadores)
 function validarCPF(cpf) {
     if (!cpf) return false
 
