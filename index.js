@@ -15,6 +15,7 @@ const estoqueController = require('./src/controller/estoque.controller')
 const pedidoController = require('./src/controller/pedido.controller')
 const itemPedidoController = require('./src/controller/itemPedido.controller')
 const entregaController = require('./src/controller/entrega.controller')
+const contatoController = require('./src/controller/contato.controller')
 
 const { autenticar, somenteAdmin } = require('./src/middleware/auth.middleware')
 
@@ -29,6 +30,7 @@ app.use(cors())
 // =====================================================
 app.post('/login', usuarioController.login)
 app.post('/usuarios', usuarioController.cadastrar)
+app.post('/contato', contatoController.enviar)
 
 app.get('/produtos', servicoController.listar)          // vitrine de serviços (mantém nome do PDF)
 app.get('/servicos', servicoController.listar)

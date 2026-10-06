@@ -268,7 +268,7 @@ test('cadastro de usuário completa o endereço via ViaCEP, criptografa a senha 
   assert.ok(await bcrypt.compare('12345678', dadosCriados.senha))
 })
 
-test('cadastro de usuário aceita tipo ADMIN quando informado explicitamente', async () => {
+test('cadastro de usuário ignora tipo ADMIN enviado no corpo e cria sempre como CLIENTE', async () => {
   stub(Usuario, 'findOne', async () => null)
   stub(axios, 'get', async () => respostaViaCepValida())
   let dadosCriados
@@ -290,7 +290,7 @@ test('cadastro de usuário aceita tipo ADMIN quando informado explicitamente', a
   })
 
   assert.equal(response.status, 201)
-  assert.equal(dadosCriados.tipo, 'ADMIN')
+  assert.equal(dadosCriados.tipo, 'CLIENTE')
 })
 
 // =====================================================
@@ -728,4 +728,23 @@ test('endpoints de relatórios respondem para o administrador (ainda pendentes d
 
   const estoqueRel = await request('/relatorios/estoque', { headers })
   assert.equal(estoqueRel.status, 200)
+})
+// =====================================================
+// Contato (Nodemailer)
+// =====================================================
+
+test('contato exige nome, e-mail, assunto e mensagem', async () => {
+  const response = await request('/contato', { method: 'POST', body: JSON.stringify({ nome: 'Ana' }) })
+  assert.equal(response.status, 400)
+})
+
+test('contato responde 503 quando o SMTP não está configurado', async () => {
+  const anterior = process.env.SMTP_HOST
+  delete process.env.SMTP_HOST
+  const response = await request('/contato', {
+    method: 'POST',
+    body: JSON.stringify({ nome: 'Ana', email: 'ana@teste.com', assunto: 'Dúvida', mensagem: 'Olá' })
+  })
+  if (anterior) process.env.SMTP_HOST = anterior
+  assert.equal(response.status, 503)
 })

@@ -1,40 +1,65 @@
 require('dotenv').config()
+const bcrypt = require('bcrypt')
 const cryptoJs = require('crypto-js')
+const jwt = require('jsonwebtoken')
 const { Op } = require('sequelize')
 
 const Usuario = require('../models/Usuario')
 const validarCPF = require('../utils/validarCPF')
 const consultarCEP = require('../utils/consultarCEP')
 
-const CHAVE_SECRETA = 'del-company-segredo'
+// Compatibilidade: contas criadas quando a senha ainda era cifrada com AES
+// (reversível). Na primeira vez que a pessoa entra, a senha é validada pelo
+// método antigo e já regravada como hash bcrypt. Quando não restar nenhuma
+// senha antiga no banco, esta função e o crypto-js podem ser removidos.
+const CHAVE_SENHA_LEGADA = 'del-company-segredo'
+
+function senhaLegadaConfere(senhaDigitada, senhaArmazenada) {
+    try {
+        const texto = cryptoJs.AES.decrypt(senhaArmazenada, CHAVE_SENHA_LEGADA).toString(cryptoJs.enc.Utf8)
+        return texto !== '' && texto === senhaDigitada
+    } catch (err) {
+        return false
+    }
+}
 
 const cadastrar = async (req, res) => {
     const valores = req.body
 
     if (!valores.nome || !valores.email || !valores.senha || !valores.cpf || !valores.cep) {
-        return res.status(400).json({ message: 'Todos os campos são obrigatórios!' })
+        return res.status(400).json({ message: 'Campos Obrigatórios' })
+    }
+
+    // 1. Validação matemática do CPF
+    if (!validarCPF(valores.cpf)) {
+        return res.status(400).json({ message: 'CPF inválido' })
     }
 
     try {
+        // 2. Verificar existência prévia (e-mail e CPF)
         const usuarioExistente = await Usuario.findOne({
-            where: { [Op.or]: [{ email: valores.email }, { cpf: valores.cpf }] }
+            where: {
+                [Op.or]: [{ email: valores.email }, { cpf: valores.cpf }]
+            }
         })
 
         if (usuarioExistente) {
             return res.status(409).json({ message: 'E-mail ou CPF já cadastrado' })
         }
 
+        // 3. Autocompletar endereço via ViaCEP
         const endereco = await consultarCEP(valores.cep)
         if (endereco.erro) {
             return res.status(400).json({ message: endereco.message })
         }
 
-        const senhaCripto = cryptoJs.AES.encrypt(valores.senha, CHAVE_SECRETA).toString()
+        // 4. Criptografar a senha
+        const senhaHash = await bcrypt.hash(valores.senha, 10)
 
-        await Usuario.create({
+        const dados = await Usuario.create({
             nome: valores.nome,
             email: valores.email,
-            senha: senhaCripto,
+            senha: senhaHash,
             cpf: valores.cpf,
             cep: valores.cep,
             rua: endereco.rua,
@@ -43,9 +68,10 @@ const cadastrar = async (req, res) => {
             tipo: 'CLIENTE'
         })
 
-        res.status(201).json({ message: 'Usuário cadastrado com sucesso!' })
+        const { senha, ...usuarioSemSenha } = dados.toJSON()
+        res.status(201).json({ message: 'Usuário cadastrado com sucesso!', dados: usuarioSemSenha })
     } catch (err) {
-        console.error('Erro ao cadastrar usuário!', err)
+        console.log('Erro ao cadastrar usuário!', err)
         res.status(500).json({ message: 'Erro ao cadastrar usuário!' })
     }
 }
@@ -54,32 +80,38 @@ const login = async (req, res) => {
     const { email, senha } = req.body
 
     if (!email || !senha) {
-        return res.status(400).json({ message: 'Campos email e senha obrigatórios!' })
+        return res.status(400).json({ message: 'Campos Obrigatórios' })
     }
 
     try {
         const usuario = await Usuario.findOne({ where: { email } })
 
         if (!usuario) {
-            return res.status(404).json({ message: 'Usuário não encontrado!' })
+            return res.status(401).json({ message: 'E-mail ou senha inválidos' })
         }
 
-        const bytes = cryptoJs.AES.decrypt(usuario.senha, CHAVE_SECRETA)
-        const senhaDescriptografada = bytes.toString(cryptoJs.enc.Utf8)
+        const jaEhBcrypt = /^\$2[aby]\$/.test(usuario.senha)
+        let senhaValida
 
-        if (senha !== senhaDescriptografada) {
-            return res.status(401).json({ message: 'Senha incorreta, não autorizado!' })
+        if (jaEhBcrypt) {
+            senhaValida = await bcrypt.compare(senha, usuario.senha)
+        } else {
+            senhaValida = senhaLegadaConfere(senha, usuario.senha)
+            if (senhaValida) {
+                const novoHash = await bcrypt.hash(senha, 10)
+                await Usuario.update({ senha: novoHash }, { where: { codUsuario: usuario.codUsuario } })
+            }
         }
 
-        const tresHorasEmMs = 3 * 60 * 60 * 1000
-        const payload = {
-            codUsuario: usuario.codUsuario,
-            nome: usuario.nome,
-            tipo: usuario.tipo,
-            expiraEm: Date.now() + tresHorasEmMs
+        if (!senhaValida) {
+            return res.status(401).json({ message: 'E-mail ou senha inválidos' })
         }
 
-        const token = cryptoJs.AES.encrypt(JSON.stringify(payload), CHAVE_SECRETA).toString()
+        const token = jwt.sign(
+            { codUsuario: usuario.codUsuario, tipo: usuario.tipo },
+            process.env.JWT_SECRET,
+            { expiresIn: '8h' }
+        )
 
         res.status(200).json({
             message: 'Login realizado com sucesso!',
@@ -87,8 +119,8 @@ const login = async (req, res) => {
             usuario: { codUsuario: usuario.codUsuario, nome: usuario.nome, tipo: usuario.tipo }
         })
     } catch (err) {
-        console.error('Não foi possível fazer o login!', err)
-        res.status(500).json({ message: 'Não foi possível fazer o login!' })
+        console.log('Erro ao realizar login!', err)
+        res.status(500).json({ message: 'Erro ao realizar login!' })
     }
 }
 
@@ -97,11 +129,12 @@ const listar = async (req, res) => {
         const dados = await Usuario.findAll({ attributes: { exclude: ['senha'] } })
         res.status(200).json(dados)
     } catch (err) {
-        console.error('Erro ao listar usuários!', err)
+        console.log('Erro ao listar usuários!', err)
         res.status(500).json({ message: 'Erro ao listar usuários!' })
     }
 }
 
+// GET /usuarios/:id  ou  GET /usuarios/buscar?nome=...
 const consultar = async (req, res) => {
     const { id } = req.params
     const { nome } = req.query
@@ -121,11 +154,12 @@ const consultar = async (req, res) => {
         }
         res.status(200).json(dados)
     } catch (err) {
-        console.error('Erro ao consultar usuário!', err)
+        console.log('Erro ao consultar usuário!', err)
         res.status(500).json({ message: 'Erro ao consultar usuário!' })
     }
 }
 
+// Perfil do usuário logado (rota privada)
 const perfil = async (req, res) => {
     try {
         const dados = await Usuario.findByPk(req.usuario.codUsuario, { attributes: { exclude: ['senha'] } })
@@ -134,11 +168,12 @@ const perfil = async (req, res) => {
         }
         res.status(200).json(dados)
     } catch (err) {
-        console.error('Erro ao consultar perfil!', err)
+        console.log('Erro ao consultar perfil!', err)
         res.status(500).json({ message: 'Erro ao consultar perfil!' })
     }
 }
 
+// PUT - atualização completa
 const atualizar = async (req, res) => {
     const id = req.params.id
     const valores = req.body
@@ -172,18 +207,19 @@ const atualizar = async (req, res) => {
         }
 
         if (valores.senha) {
-            atualizacao.senha = cryptoJs.AES.encrypt(valores.senha, CHAVE_SECRETA).toString()
+            atualizacao.senha = await bcrypt.hash(valores.senha, 10)
         }
 
         await Usuario.update(atualizacao, { where: { codUsuario: id } })
         const atualizado = await Usuario.findByPk(id, { attributes: { exclude: ['senha'] } })
         res.status(200).json({ message: 'Usuário atualizado com sucesso!', dados: atualizado })
     } catch (err) {
-        console.error('Erro ao atualizar usuário!', err)
+        console.log('Erro ao atualizar usuário!', err)
         res.status(500).json({ message: 'Erro ao atualizar usuário!' })
     }
 }
 
+// PATCH - atualização parcial
 const atualizarParcial = async (req, res) => {
     const id = req.params.id
     const valores = req.body
@@ -201,9 +237,10 @@ const atualizarParcial = async (req, res) => {
         }
 
         if (valores.senha) {
-            valores.senha = cryptoJs.AES.encrypt(valores.senha, CHAVE_SECRETA).toString()
+            valores.senha = await bcrypt.hash(valores.senha, 10)
         }
 
+        // Se o CEP for alterado parcialmente, atualiza o endereço também
         if (valores.cep) {
             const endereco = await consultarCEP(valores.cep)
             if (endereco.erro) {
@@ -218,7 +255,7 @@ const atualizarParcial = async (req, res) => {
         const atualizado = await Usuario.findByPk(id, { attributes: { exclude: ['senha'] } })
         res.status(200).json({ message: 'Usuário atualizado com sucesso!', dados: atualizado })
     } catch (err) {
-        console.error('Erro ao atualizar usuário!', err)
+        console.log('Erro ao atualizar usuário!', err)
         res.status(500).json({ message: 'Erro ao atualizar usuário!' })
     }
 }
@@ -235,7 +272,7 @@ const apagar = async (req, res) => {
         await Usuario.destroy({ where: { codUsuario: id } })
         res.status(200).json({ message: 'Usuário excluído com sucesso!' })
     } catch (err) {
-        console.error('Erro ao excluir usuário!', err)
+        console.log('Erro ao excluir usuário!', err)
         res.status(500).json({ message: 'Erro ao excluir usuário!' })
     }
 }
