@@ -22,9 +22,12 @@ const cadastrar = async (req, res) => {
     }
 }
 
+// O catálogo de serviços usa tipo SERVICO (padrão); ?tipo=RAMO lista os ramos de licitação.
+const tipoDaConsulta = (req) => (req.query.tipo === 'RAMO' ? 'RAMO' : 'SERVICO')
+
 const listar = async (req, res) => {
     try {
-        const dados = await Categoria.findAll()
+        const dados = await Categoria.findAll({ where: { tipo: tipoDaConsulta(req) } })
         res.status(200).json(dados)
     } catch (err) {
         console.log('Erro ao listar categorias!', err)
@@ -39,7 +42,7 @@ const consultar = async (req, res) => {
 
     try {
         if (nome) {
-            const dados = await Categoria.findAll({ where: { nome: { [Op.like]: `%${nome}%` } } })
+            const dados = await Categoria.findAll({ where: { nome: { [Op.like]: `%${nome}%` }, tipo: tipoDaConsulta(req) } })
             return res.status(200).json(dados)
         }
 

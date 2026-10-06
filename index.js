@@ -16,6 +16,7 @@ const pedidoController = require('./src/controller/pedido.controller')
 const itemPedidoController = require('./src/controller/itemPedido.controller')
 const entregaController = require('./src/controller/entrega.controller')
 const contatoController = require('./src/controller/contato.controller')
+const oportunidadeController = require('./src/controller/oportunidade.controller')
 
 const { autenticar, somenteAdmin } = require('./src/middleware/auth.middleware')
 
@@ -31,6 +32,11 @@ app.use(cors())
 app.post('/login', usuarioController.login)
 app.post('/usuarios', usuarioController.cadastrar)
 app.post('/contato', contatoController.enviar)
+
+// Inteligência de licitações (consulta pública com selos de enquadramento)
+app.get('/api/licitacoes/filtros', oportunidadeController.listar)
+app.get('/api/licitacoes/filtros/opcoes', oportunidadeController.opcoes)
+app.get('/api/oportunidades/:id', oportunidadeController.consultar)
 
 app.get('/produtos', servicoController.listar)          // vitrine de serviços (mantém nome do PDF)
 app.get('/servicos', servicoController.listar)
@@ -74,6 +80,9 @@ app.delete('/categorias/:id', autenticar, somenteAdmin, categoriaController.apag
 // Movimentação e controle de estoque (capacidade de atendimento)
 app.post('/estoque', autenticar, somenteAdmin, estoqueController.cadastrar)
 app.get('/estoque', autenticar, somenteAdmin, estoqueController.listar)
+
+// Sincronização das oportunidades com a API de Tijucas (admin)
+app.post('/api/oportunidades/sincronizar', autenticar, somenteAdmin, oportunidadeController.sincronizar)
 
 // Gestão de usuários (admin)
 app.get('/usuarios', autenticar, somenteAdmin, usuarioController.listar)

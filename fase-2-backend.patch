@@ -1,0 +1,1389 @@
+diff --git a/.sequelizerc b/.sequelizerc
+new file mode 100644
+index 0000000..b49dc70
+--- /dev/null
++++ b/.sequelizerc
+@@ -0,0 +1,6 @@
++const path = require('path')
++
++module.exports = {
++    config: path.resolve('config', 'database.js'),
++    'migrations-path': path.resolve('migrations')
++}
+diff --git a/config/database.js b/config/database.js
+new file mode 100644
+index 0000000..5cb4478
+--- /dev/null
++++ b/config/database.js
+@@ -0,0 +1,14 @@
++// Configuração lida pelo sequelize-cli (npm run migrate). Usa as mesmas variáveis do .env da API.
++require('dotenv').config()
++
++const base = {
++    username: process.env.DB_USER,
++    password: process.env.DB_PASSWORD,
++    database: process.env.DB_NAME,
++    host: process.env.DB_HOST,
++    port: process.env.DB_PORT || 3306,
++    dialect: 'mysql',
++    logging: false
++}
++
++module.exports = { development: base, test: base, production: base }
+diff --git a/config/limitesLicitacao.js b/config/limitesLicitacao.js
+new file mode 100644
+index 0000000..ee48cbe
+--- /dev/null
++++ b/config/limitesLicitacao.js
+@@ -0,0 +1,86 @@
++// =====================================================================
++// LIMITES LEGAIS DE CONTRATAÇÃO (Lei 14.133/2021)
++// ---------------------------------------------------------------------
++// ÚNICO lugar do sistema onde esses valores aparecem. Para atualizar em
++// 2027 (ou quando sair novo decreto), edite SOMENTE este arquivo.
++//
++// comparador:
++//   'menor'      -> valor <  limite
++//   'menorIgual' -> valor <= limite
++//   'maior'      -> valor >  limite
++//
++// Os selos são INDICATIVOS (apoio à triagem) e não substituem a análise
++// jurídica do edital. Confirme cada hipótese com a assessoria jurídica.
++// =====================================================================
++
++const LIMITES = {
++    vigencia: 2026,
++    fonte: 'Decreto 12.807/2025 (vigente desde 01/01/2026); LC 123/2006 para ME/EPP',
++
++    itens: {
++        DISPENSA_OBRAS: {
++            valor: 130984.20,
++            comparador: 'menor',
++            baseLegal: 'Lei 14.133/2021, art. 75, I',
++            descricao: 'Dispensa: obras e serviços de engenharia'
++        },
++        DISPENSA_OUTROS: {
++            valor: 65492.11,
++            comparador: 'menor',
++            baseLegal: 'Lei 14.133/2021, art. 75, II',
++            descricao: 'Dispensa: outras compras e serviços'
++        },
++        SERVICO_TECNICO_ESPECIALIZADO: {
++            valor: 392952.63,
++            comparador: 'menorIgual',
++            baseLegal: 'Lei 14.133/2021, art. 37, §2º',
++            descricao: 'Serviços técnicos especializados'
++        },
++        CONTRATO_VERBAL: {
++            valor: 13098.41,
++            comparador: 'menorIgual',
++            baseLegal: 'Lei 14.133/2021, art. 95, §2º',
++            descricao: 'Contrato verbal: pequenas compras de pronto pagamento'
++        },
++        MANUTENCAO_VEICULOS: {
++            valor: 10478.74,
++            comparador: 'menorIgual',
++            baseLegal: 'Lei 14.133/2021, art. 75, §7º',
++            descricao: 'Manutenção de veículos (com peças)'
++        },
++        GRANDE_VULTO: {
++            valor: 261968421.04,
++            comparador: 'maior',
++            baseLegal: 'Lei 14.133/2021, art. 6º, XXII',
++            descricao: 'Contratação de grande vulto'
++        },
++        EXCLUSIVO_ME_EPP: {
++            valor: 80000.00,
++            comparador: 'menorIgual',
++            baseLegal: 'LC 123/2006, art. 48, I (não é corrigido pelo decreto anual)',
++            descricao: 'Itens de até R$ 80 mil: participação exclusiva de ME/EPP/MEI'
++        }
++    }
++}
++
++// Metadados visuais de cada selo (a interface só lê estes dados da API).
++const SELOS = {
++    GRANDE_VULTO:                  { rotulo: 'Grande vulto',                    cor: 'vermelho', emoji: '🔴' },
++    DISPENSA:                      { rotulo: 'Dispensa',                        cor: 'verde',    emoji: '🟢' },
++    SERVICO_TECNICO_ESPECIALIZADO: { rotulo: 'Serviço técnico especializado',   cor: 'laranja',  emoji: '🟠' },
++    EXCLUSIVO_ME_EPP:              { rotulo: 'Exclusivo ME/EPP',                cor: 'azul',     emoji: '🔵' },
++    MANUTENCAO_VEICULOS:           { rotulo: 'Manutenção de veículos',          cor: 'cinza',    emoji: '⚪' },
++    CONTRATO_VERBAL:               { rotulo: 'Contrato verbal',                 cor: 'cinza',    emoji: '⚪' }
++}
++
++// Ordem para escolher o selo principal (o primeiro que se aplicar).
++const PRIORIDADE_SELO_PRINCIPAL = [
++    'GRANDE_VULTO',
++    'DISPENSA',
++    'SERVICO_TECNICO_ESPECIALIZADO',
++    'EXCLUSIVO_ME_EPP',
++    'MANUTENCAO_VEICULOS',
++    'CONTRATO_VERBAL'
++]
++
++module.exports = { LIMITES, SELOS, PRIORIDADE_SELO_PRINCIPAL }
+diff --git a/config/palavrasChave.js b/config/palavrasChave.js
+new file mode 100644
+index 0000000..8783915
+--- /dev/null
++++ b/config/palavrasChave.js
+@@ -0,0 +1,69 @@
++// =====================================================================
++// PALAVRAS-CHAVE PARA CLASSIFICAÇÃO POR RAMO
++// ---------------------------------------------------------------------
++// Escreva tudo em minúsculas e SEM acento (o texto do objeto é
++// normalizado antes da comparação). Termos com até 3 letras (ex: "ti")
++// só casam como palavra inteira; os demais casam no início da palavra
++// (assim "medicamento" também encontra "medicamentos").
++// A ORDEM da lista desempata ramos com a mesma pontuação.
++// =====================================================================
++
++const RAMOS = [
++    {
++        nome: 'Obras e Engenharia',
++        descricao: 'Obras, reformas, pavimentação e serviços de engenharia',
++        palavras: ['obra', 'reforma', 'construcao', 'pavimentacao', 'asfalto', 'cimento', 'engenharia',
++            'drenagem', 'terraplenagem', 'edificacao', 'ampliacao', 'paisagismo', 'saneamento',
++            'calcamento', 'recapeamento', 'alvenaria', 'concreto', 'projeto executivo', 'bueiro']
++    },
++    {
++        nome: 'Saúde',
++        descricao: 'Medicamentos, insumos hospitalares e serviços de saúde',
++        palavras: ['medicamento', 'hospital', 'enfermagem', 'medico', 'saude', 'odontolog', 'laboratorio',
++            'farmac', 'cirurg', 'vacina', 'ambulatorio', 'clinic', 'insumo hospitalar', 'material hospitalar',
++            'exame', 'fisioterapia', 'ubs', 'sus']
++    },
++    {
++        nome: 'Tecnologia da Informação',
++        descricao: 'Equipamentos, software, sistemas e serviços de TI',
++        palavras: ['computador', 'software', 'sistema', 'servidor', 'notebook', 'ti', 'informatica',
++            'impressora', 'toner', 'rede de dados', 'internet', 'licenca de uso', 'nuvem', 'tablet',
++            'monitor', 'switch', 'cabeamento estruturado', 'hospedagem', 'site']
++    },
++    {
++        nome: 'Alimentação',
++        descricao: 'Gêneros alimentícios, merenda e refeições',
++        palavras: ['alimento', 'alimenticio', 'merenda', 'refeicao', 'genero alimenticio', 'hortifruti',
++            'carne', 'pao', 'leite', 'cesta basica', 'marmita', 'lanche', 'coffee break', 'buffet',
++            'bebida', 'agua mineral']
++    },
++    {
++        nome: 'Limpeza e Conservação',
++        descricao: 'Material de limpeza, conservação e higienização',
++        palavras: ['limpeza', 'conservacao', 'higieniz', 'desinfec', 'detergente', 'vassoura', 'sanitari',
++            'zeladoria', 'jardinagem', 'dedetizacao', 'coleta de lixo', 'residuos', 'copa e cozinha']
++    },
++    {
++        nome: 'Veículos e Combustíveis',
++        descricao: 'Veículos, peças, manutenção e combustíveis',
++        palavras: ['combustivel', 'gasolina', 'diesel', 'veiculo', 'etanol', 'oleo lubrificante', 'pneu',
++            'caminhao', 'onibus', 'automovel', 'automotiv', 'ambulancia', 'frota', 'abastecimento',
++            'lubrificante', 'retroescavadeira', 'trator']
++    },
++    {
++        nome: 'Educação',
++        descricao: 'Material escolar, transporte escolar e serviços educacionais',
++        palavras: ['escolar', 'educacao', 'didatico', 'escola', 'creche', 'pedagogic', 'ensino',
++            'material de ensino', 'livro', 'uniforme', 'transporte escolar', 'curso', 'capacitacao']
++    },
++    {
++        nome: 'Segurança',
++        descricao: 'Vigilância, monitoramento e equipamentos de segurança',
++        palavras: ['seguranca', 'vigilancia', 'monitoramento', 'cftv', 'camera', 'alarme', 'extintor',
++            'portaria', 'guarda', 'epi', 'incendio', 'cerca eletrica', 'controle de acesso']
++    }
++]
++
++const RAMO_PADRAO = { nome: 'Outros', descricao: 'Objetos que não se encaixam nos demais ramos' }
++
++module.exports = { RAMOS, RAMO_PADRAO }
+diff --git a/index.js b/index.js
+index 87ae85d..112b756 100644
+--- a/index.js
++++ b/index.js
+@@ -16,6 +16,7 @@ const pedidoController = require('./src/controller/pedido.controller')
+ const itemPedidoController = require('./src/controller/itemPedido.controller')
+ const entregaController = require('./src/controller/entrega.controller')
+ const contatoController = require('./src/controller/contato.controller')
++const oportunidadeController = require('./src/controller/oportunidade.controller')
+ 
+ const { autenticar, somenteAdmin } = require('./src/middleware/auth.middleware')
+ 
+@@ -32,6 +33,11 @@ app.post('/login', usuarioController.login)
+ app.post('/usuarios', usuarioController.cadastrar)
+ app.post('/contato', contatoController.enviar)
+ 
++// Inteligência de licitações (consulta pública com selos de enquadramento)
++app.get('/api/licitacoes/filtros', oportunidadeController.listar)
++app.get('/api/licitacoes/filtros/opcoes', oportunidadeController.opcoes)
++app.get('/api/oportunidades/:id', oportunidadeController.consultar)
++
+ app.get('/produtos', servicoController.listar)          // vitrine de serviços (mantém nome do PDF)
+ app.get('/servicos', servicoController.listar)
+ app.get('/servicos/buscar', servicoController.consultar)
+@@ -75,6 +81,9 @@ app.delete('/categorias/:id', autenticar, somenteAdmin, categoriaController.apag
+ app.post('/estoque', autenticar, somenteAdmin, estoqueController.cadastrar)
+ app.get('/estoque', autenticar, somenteAdmin, estoqueController.listar)
+ 
++// Sincronização das oportunidades com a API de Tijucas (admin)
++app.post('/api/oportunidades/sincronizar', autenticar, somenteAdmin, oportunidadeController.sincronizar)
++
+ // Gestão de usuários (admin)
+ app.get('/usuarios', autenticar, somenteAdmin, usuarioController.listar)
+ app.get('/usuarios/:id', autenticar, somenteAdmin, usuarioController.consultar)
+diff --git a/migrations/20261006000001-categorias-tipo-e-ramos.js b/migrations/20261006000001-categorias-tipo-e-ramos.js
+new file mode 100644
+index 0000000..1e78e0f
+--- /dev/null
++++ b/migrations/20261006000001-categorias-tipo-e-ramos.js
+@@ -0,0 +1,44 @@
++'use strict'
++
++// Adiciona categorias.tipo (SERVICO por padrão) e cadastra os ramos de licitação (tipo RAMO).
++// Não altera nem apaga nenhuma categoria existente. Pode ser executada mais de uma vez.
++const RAMOS = [
++    ['Obras e Engenharia', 'Obras, reformas, pavimentação e serviços de engenharia'],
++    ['Saúde', 'Medicamentos, insumos hospitalares e serviços de saúde'],
++    ['Tecnologia da Informação', 'Equipamentos, software, sistemas e serviços de TI'],
++    ['Alimentação', 'Gêneros alimentícios, merenda e refeições'],
++    ['Limpeza e Conservação', 'Material de limpeza, conservação e higienização'],
++    ['Veículos e Combustíveis', 'Veículos, peças, manutenção e combustíveis'],
++    ['Educação', 'Material escolar, transporte escolar e serviços educacionais'],
++    ['Segurança', 'Vigilância, monitoramento e equipamentos de segurança'],
++    ['Outros', 'Objetos que não se encaixam nos demais ramos']
++]
++
++module.exports = {
++    async up(queryInterface, Sequelize) {
++        const colunas = await queryInterface.describeTable('categorias')
++        if (!colunas.tipo) {
++            await queryInterface.addColumn('categorias', 'tipo', {
++                type: Sequelize.ENUM('SERVICO', 'RAMO'),
++                allowNull: false,
++                defaultValue: 'SERVICO'
++            })
++        }
++
++        for (const [nome, descricao] of RAMOS) {
++            const [existe] = await queryInterface.sequelize.query(
++                'SELECT codCategoria FROM categorias WHERE nome = :nome AND tipo = :tipo LIMIT 1',
++                { replacements: { nome, tipo: 'RAMO' } }
++            )
++            if (!existe.length) {
++                await queryInterface.bulkInsert('categorias', [{ nome, descricao, tipo: 'RAMO' }])
++            }
++        }
++    },
++
++    async down(queryInterface) {
++        await queryInterface.sequelize.query("DELETE FROM categorias WHERE tipo = 'RAMO'")
++        const colunas = await queryInterface.describeTable('categorias')
++        if (colunas.tipo) await queryInterface.removeColumn('categorias', 'tipo')
++    }
++}
+diff --git a/migrations/20261006000002-create-oportunidades.js b/migrations/20261006000002-create-oportunidades.js
+new file mode 100644
+index 0000000..cb5bcdc
+--- /dev/null
++++ b/migrations/20261006000002-create-oportunidades.js
+@@ -0,0 +1,48 @@
++'use strict'
++
++// Cria a tabela oportunidades (se ainda não existir) com seus índices.
++module.exports = {
++    async up(queryInterface, Sequelize) {
++        const tabelas = await queryInterface.showAllTables()
++        if (tabelas.includes('oportunidades')) return
++
++        await queryInterface.createTable('oportunidades', {
++            codOportunidade: { type: Sequelize.INTEGER, primaryKey: true, autoIncrement: true },
++            origem: { type: Sequelize.ENUM('MUNICIPAL', 'PNCP'), allowNull: false, defaultValue: 'MUNICIPAL' },
++            chaveExterna: { type: Sequelize.STRING(190), allowNull: false },
++            numero: Sequelize.STRING(40),
++            ano: Sequelize.INTEGER,
++            objeto: Sequelize.TEXT,
++            unidadeGestora: Sequelize.STRING(255),
++            municipio: Sequelize.STRING(100),
++            uf: Sequelize.CHAR(2),
++            modalidade: Sequelize.STRING(120),
++            tipoConcorrencia: Sequelize.STRING(120),
++            situacao: Sequelize.STRING(120),
++            valorEstimado: Sequelize.DECIMAL(15, 2),
++            valorHomologado: Sequelize.DECIMAL(15, 2),
++            dataEdital: Sequelize.DATE,
++            dataAbertura: Sequelize.DATE,
++            dataHomologacao: Sequelize.DATE,
++            idCategoria: {
++                type: Sequelize.INTEGER,
++                references: { model: 'categorias', key: 'codCategoria' },
++                onDelete: 'SET NULL',
++                onUpdate: 'CASCADE'
++            },
++            selos: Sequelize.STRING(255),
++            seloPrincipal: Sequelize.STRING(40),
++            createdAt: { type: Sequelize.DATE, allowNull: false },
++            updatedAt: { type: Sequelize.DATE, allowNull: false }
++        })
++
++        await queryInterface.addIndex('oportunidades', ['origem', 'chaveExterna'], { unique: true, name: 'uq_oportunidade_origem_chave' })
++        for (const campo of ['idCategoria', 'modalidade', 'situacao', 'dataEdital', 'valorEstimado', 'seloPrincipal', 'unidadeGestora']) {
++            await queryInterface.addIndex('oportunidades', [campo])
++        }
++    },
++
++    async down(queryInterface) {
++        await queryInterface.dropTable('oportunidades')
++    }
++}
+diff --git a/package.json b/package.json
+index 39d7cc9..467e159 100644
+--- a/package.json
++++ b/package.json
+@@ -4,7 +4,9 @@
+   "scripts": {
+     "start": "node index.js",
+     "sync": "node sync.js",
+-    "test": "node --test test/api.test.js"
++    "test": "node --test test/*.test.js",
++    "migrate": "sequelize-cli db:migrate",
++    "migrate:undo": "sequelize-cli db:migrate:undo"
+   },
+   "dependencies": {
+     "axios": "^1.7.2",
+@@ -16,6 +18,7 @@
+     "jsonwebtoken": "^9.0.3",
+     "mysql2": "^3.24.4",
+     "nodemailer": "^6.10.1",
+-    "sequelize": "^6.37.8"
++    "sequelize": "^6.37.8",
++    "sequelize-cli": "^6.6.2"
+   }
+ }
+diff --git a/src/controller/categoria.controller.js b/src/controller/categoria.controller.js
+index 744f171..9cbc395 100644
+--- a/src/controller/categoria.controller.js
++++ b/src/controller/categoria.controller.js
+@@ -22,9 +22,12 @@ const cadastrar = async (req, res) => {
+     }
+ }
+ 
++// O catálogo de serviços usa tipo SERVICO (padrão); ?tipo=RAMO lista os ramos de licitação.
++const tipoDaConsulta = (req) => (req.query.tipo === 'RAMO' ? 'RAMO' : 'SERVICO')
++
+ const listar = async (req, res) => {
+     try {
+-        const dados = await Categoria.findAll()
++        const dados = await Categoria.findAll({ where: { tipo: tipoDaConsulta(req) } })
+         res.status(200).json(dados)
+     } catch (err) {
+         console.log('Erro ao listar categorias!', err)
+@@ -39,7 +42,7 @@ const consultar = async (req, res) => {
+ 
+     try {
+         if (nome) {
+-            const dados = await Categoria.findAll({ where: { nome: { [Op.like]: `%${nome}%` } } })
++            const dados = await Categoria.findAll({ where: { nome: { [Op.like]: `%${nome}%` }, tipo: tipoDaConsulta(req) } })
+             return res.status(200).json(dados)
+         }
+ 
+diff --git a/src/controller/oportunidade.controller.js b/src/controller/oportunidade.controller.js
+new file mode 100644
+index 0000000..b08014c
+--- /dev/null
++++ b/src/controller/oportunidade.controller.js
+@@ -0,0 +1,243 @@
++const { Op, fn, col } = require('sequelize')
++const Oportunidade = require('../models/Oportunidade')
++const Categoria = require('../models/Categoria')
++const sincronizacao = require('../services/sincronizacaoMunicipal.service')
++const { descreverSelos, listarSelosDisponiveis } = require('../services/enquadramento.service')
++const { paraValor, paraDataFiltro } = require('../utils/conversores')
++
++const LIMITE_MAXIMO = 100
++const LIMITE_PADRAO = 20
++const ORDENACOES = {
++    valor: 'valorEstimado',
++    valorHomologado: 'valorHomologado',
++    publicacao: 'dataEdital',
++    abertura: 'dataAbertura',
++    ano: 'ano',
++    orgao: 'unidadeGestora',
++    recentes: 'createdAt'
++}
++
++const numeroOuNull = (v) => (v === null || v === undefined ? null : Number(v))
++
++// Formato público de uma oportunidade (selos prontos para a interface).
++function serializar(op) {
++    const dados = typeof op.toJSON === 'function' ? op.toJSON() : op
++    const ramo = dados.categoriaOportunidade ? dados.categoriaOportunidade.nome : null
++    const estimado = numeroOuNull(dados.valorEstimado)
++    const homologado = numeroOuNull(dados.valorHomologado)
++    const economia = estimado && homologado !== null && estimado > 0 ? estimado - homologado : null
++
++    return {
++        codOportunidade: dados.codOportunidade,
++        origem: dados.origem,
++        numero: dados.numero,
++        ano: dados.ano,
++        objeto: dados.objeto,
++        unidadeGestora: dados.unidadeGestora,
++        municipio: dados.municipio,
++        uf: dados.uf,
++        modalidade: dados.modalidade,
++        tipoConcorrencia: dados.tipoConcorrencia,
++        situacao: dados.situacao,
++        valorEstimado: estimado,
++        valorHomologado: homologado,
++        economia,
++        percentualEconomia: economia !== null ? Number(((economia / estimado) * 100).toFixed(2)) : null,
++        dataEdital: dados.dataEdital,
++        dataAbertura: dados.dataAbertura,
++        dataHomologacao: dados.dataHomologacao,
++        categoria: dados.categoriaOportunidade
++            ? { codCategoria: dados.categoriaOportunidade.codCategoria, nome: ramo }
++            : null,
++        selos: descreverSelos(dados.selos, ramo),
++        seloPrincipal: dados.seloPrincipal
++    }
++}
++
++const erroFiltro = (res, message) => res.status(400).json({ message })
++
++// Monta o WHERE a partir da query string. Retorna { where, erro }.
++function montarFiltros(q) {
++    const where = {}
++    const e = (message) => ({ erro: message })
++
++    if (q.q) {
++        const termo = `%${String(q.q).trim()}%`
++        where[Op.or] = [
++            { objeto: { [Op.like]: termo } },
++            { unidadeGestora: { [Op.like]: termo } },
++            { modalidade: { [Op.like]: termo } }
++        ]
++    }
++    if (q.orgao) where.unidadeGestora = { [Op.like]: `%${q.orgao}%` }
++    if (q.municipio) where.municipio = { [Op.like]: `%${q.municipio}%` }
++    if (q.uf) {
++        if (!/^[A-Za-z]{2}$/.test(q.uf)) return e('Estado (uf) deve ter 2 letras')
++        where.uf = String(q.uf).toUpperCase()
++    }
++    // modalidade e situação aceitam vários valores separados por vírgula (multi-seleção do frontend)
++    const emLista = (v) => {
++        const itens = String(v).split(',').map(i => i.trim()).filter(Boolean)
++        return itens.length > 1 ? { [Op.in]: itens } : itens[0]
++    }
++    if (q.modalidade) where.modalidade = emLista(q.modalidade)
++    if (q.situacao) where.situacao = emLista(q.situacao)
++    if (q.origem) {
++        if (!['MUNICIPAL', 'PNCP'].includes(q.origem)) return e('Origem inválida')
++        where.origem = q.origem
++    }
++    if (q.ano) {
++        if (!/^\d{4}$/.test(q.ano)) return e('Ano inválido')
++        where.ano = Number(q.ano)
++    }
++    if (q.categoria) {
++        if (!/^\d+$/.test(q.categoria)) return e('Categoria deve ser um id numérico')
++        where.idCategoria = Number(q.categoria)
++    }
++
++    // faixa de valor (valor_estimado)
++    if (q.valorMin !== undefined || q.valorMax !== undefined) {
++        const faixa = {}
++        if (q.valorMin !== undefined) {
++            const min = paraValor(q.valorMin)
++            if (min === null) return e('valorMin inválido')
++            faixa[Op.gte] = min
++        }
++        if (q.valorMax !== undefined) {
++            const max = paraValor(q.valorMax)
++            if (max === null) return e('valorMax inválido')
++            faixa[Op.lte] = max
++        }
++        where.valorEstimado = faixa
++    }
++
++    // datas
++    const intervalos = [
++        ['publicacaoDe', 'publicacaoAte', 'dataEdital'],
++        ['aberturaDe', 'aberturaAte', 'dataAbertura']
++    ]
++    for (const [de, ate, campo] of intervalos) {
++        if (q[de] === undefined && q[ate] === undefined) continue
++        const faixa = {}
++        if (q[de] !== undefined) {
++            const d = paraDataFiltro(q[de])
++            if (!d) return e(`${de} inválida (use AAAA-MM-DD)`)
++            faixa[Op.gte] = d
++        }
++        if (q[ate] !== undefined) {
++            const d = paraDataFiltro(q[ate], true)
++            if (!d) return e(`${ate} inválida (use AAAA-MM-DD)`)
++            faixa[Op.lte] = d
++        }
++        where[campo] = faixa
++    }
++
++    // enquadramento (selo): aceita um ou vários códigos separados por vírgula
++    if (q.enquadramento) {
++        const validos = listarSelosDisponiveis().map(s => s.codigo)
++        const codigos = String(q.enquadramento).split(',').map(c => c.trim().toUpperCase()).filter(Boolean)
++        if (!codigos.length || codigos.some(c => !validos.includes(c))) return e('Enquadramento inválido')
++        const condicoes = codigos.map(c => ({ selos: { [Op.like]: `%,${c},%` } }))
++        where[Op.and] = [...(where[Op.and] || []), { [Op.or]: condicoes }]
++    }
++
++    return { where }
++}
++
++const include = [{ model: Categoria, as: 'categoriaOportunidade', attributes: ['codCategoria', 'nome'] }]
++
++// GET /api/licitacoes/filtros  (público)
++const listar = async (req, res) => {
++    const q = req.query
++    const { where, erro } = montarFiltros(q)
++    if (erro) return erroFiltro(res, erro)
++
++    let whereFinal = where
++    // filtro por NOME do ramo (alternativa ao id da categoria)
++    const incluir = [...include]
++    if (q.ramo) {
++        incluir[0] = { ...include[0], where: { nome: q.ramo, tipo: 'RAMO' }, required: true }
++    }
++
++    const pagina = Math.max(parseInt(q.pagina, 10) || 1, 1)
++    const limite = Math.min(Math.max(parseInt(q.limite, 10) || LIMITE_PADRAO, 1), LIMITE_MAXIMO)
++    const campoOrdem = ORDENACOES[q.ordenar] || ORDENACOES.recentes
++    const direcao = String(q.direcao).toLowerCase() === 'asc' ? 'ASC' : 'DESC'
++
++    try {
++        const { rows, count } = await Oportunidade.findAndCountAll({
++            where: whereFinal,
++            include: incluir,
++            order: [[campoOrdem, direcao], ['codOportunidade', 'DESC']],
++            limit: limite,
++            offset: (pagina - 1) * limite,
++            distinct: true
++        })
++        res.status(200).json({
++            dados: rows.map(serializar),
++            paginacao: { pagina, limite, total: count, totalPaginas: Math.max(Math.ceil(count / limite), 1) }
++        })
++    } catch (err) {
++        console.error('Erro ao filtrar oportunidades!', err)
++        res.status(500).json({ message: 'Não foi possível consultar as licitações agora. Tente novamente.' })
++    }
++}
++
++// GET /api/licitacoes/filtros/opcoes  (público) — valores para montar os dropdowns
++const opcoes = async (req, res) => {
++    try {
++        const distintos = async (campo) => {
++            const linhas = await Oportunidade.findAll({
++                attributes: [[fn('DISTINCT', col(campo)), campo]],
++                where: { [campo]: { [Op.ne]: null } },
++                order: [[col(campo), 'ASC']],
++                raw: true
++            })
++            return linhas.map(l => l[campo]).filter(Boolean)
++        }
++
++        const [modalidades, situacoes, orgaos, municipios, ufs, anos, ramos] = await Promise.all([
++            distintos('modalidade'), distintos('situacao'), distintos('unidadeGestora'),
++            distintos('municipio'), distintos('uf'), distintos('ano'),
++            Categoria.findAll({ where: { tipo: 'RAMO' }, attributes: ['codCategoria', 'nome'], order: [['nome', 'ASC']] })
++        ])
++
++        res.status(200).json({
++            ramos, modalidades, situacoes, orgaos, municipios, ufs,
++            anos: anos.sort((a, b) => b - a),
++            enquadramentos: listarSelosDisponiveis()
++        })
++    } catch (err) {
++        console.error('Erro ao listar opções de filtro!', err)
++        res.status(500).json({ message: 'Não foi possível carregar os filtros agora.' })
++    }
++}
++
++// GET /api/oportunidades/:id  (público) — detalhes
++const consultar = async (req, res) => {
++    if (!/^\d+$/.test(req.params.id)) return res.status(400).json({ message: 'Id inválido' })
++    try {
++        const op = await Oportunidade.findByPk(req.params.id, { include })
++        if (!op) return res.status(404).json({ message: 'Oportunidade não encontrada!' })
++        res.status(200).json(serializar(op))
++    } catch (err) {
++        console.error('Erro ao consultar oportunidade!', err)
++        res.status(500).json({ message: 'Não foi possível consultar a licitação agora.' })
++    }
++}
++
++// POST /api/oportunidades/sincronizar  (somente admin)
++const sincronizar = async (req, res) => {
++    try {
++        const resumo = await sincronizacao.sincronizar()
++        res.status(200).json({ message: 'Sincronização concluída!', resumo })
++    } catch (err) {
++        console.error('Erro ao sincronizar oportunidades!', err)
++        if (err.codigo === 'API_INDISPONIVEL' || err.codigo === 'RESPOSTA_INVALIDA') {
++            return res.status(502).json({ message: 'A API de licitações não respondeu corretamente. Tente novamente em instantes.' })
++        }
++        res.status(500).json({ message: 'Não foi possível sincronizar as licitações agora.' })
++    }
++}
++
++module.exports = { listar, opcoes, consultar, sincronizar, montarFiltros, serializar }
+diff --git a/src/models/Categoria.js b/src/models/Categoria.js
+index be6468f..447a771 100644
+--- a/src/models/Categoria.js
++++ b/src/models/Categoria.js
+@@ -13,6 +13,12 @@ const Categoria = db.define('categoria', {
+     },
+     descricao: {
+         type: DataTypes.STRING(255)
++    },
++    // SERVICO = catálogo de serviços (padrão) | RAMO = ramo de licitação (módulo de inteligência)
++    tipo: {
++        type: DataTypes.ENUM('SERVICO', 'RAMO'),
++        allowNull: false,
++        defaultValue: 'SERVICO'
+     }
+ }, {
+     timestamps: false,
+diff --git a/src/models/Oportunidade.js b/src/models/Oportunidade.js
+new file mode 100644
+index 0000000..cbb83b7
+--- /dev/null
++++ b/src/models/Oportunidade.js
+@@ -0,0 +1,42 @@
++const { DataTypes } = require('sequelize')
++const db = require('../db/conn')
++
++// Oportunidade de licitação (fonte única para dashboard, filtros, kanban e alertas).
++// origem = MUNICIPAL (API de Tijucas) | PNCP (Fase 8)
++const Oportunidade = db.define('oportunidade', {
++    codOportunidade: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
++    origem: { type: DataTypes.ENUM('MUNICIPAL', 'PNCP'), allowNull: false, defaultValue: 'MUNICIPAL' },
++    chaveExterna: { type: DataTypes.STRING(190), allowNull: false },
++    numero: { type: DataTypes.STRING(40) },
++    ano: { type: DataTypes.INTEGER },
++    objeto: { type: DataTypes.TEXT },
++    unidadeGestora: { type: DataTypes.STRING(255) },
++    municipio: { type: DataTypes.STRING(100) },
++    uf: { type: DataTypes.CHAR(2) },
++    modalidade: { type: DataTypes.STRING(120) },
++    tipoConcorrencia: { type: DataTypes.STRING(120) },
++    situacao: { type: DataTypes.STRING(120) },
++    valorEstimado: { type: DataTypes.DECIMAL(15, 2) },
++    valorHomologado: { type: DataTypes.DECIMAL(15, 2) },
++    dataEdital: { type: DataTypes.DATE },
++    dataAbertura: { type: DataTypes.DATE },
++    dataHomologacao: { type: DataTypes.DATE },
++    idCategoria: { type: DataTypes.INTEGER },
++    selos: { type: DataTypes.STRING(255) },
++    seloPrincipal: { type: DataTypes.STRING(40) }
++}, {
++    tableName: 'oportunidades',
++    timestamps: true,
++    indexes: [
++        { unique: true, fields: ['origem', 'chaveExterna'], name: 'uq_oportunidade_origem_chave' },
++        { fields: ['idCategoria'] },
++        { fields: ['modalidade'] },
++        { fields: ['situacao'] },
++        { fields: ['dataEdital'] },
++        { fields: ['valorEstimado'] },
++        { fields: ['seloPrincipal'] },
++        { fields: ['unidadeGestora'] }
++    ]
++})
++
++module.exports = Oportunidade
+diff --git a/src/models/rel.js b/src/models/rel.js
+index c345c2a..8de6378 100644
+--- a/src/models/rel.js
++++ b/src/models/rel.js
+@@ -5,6 +5,7 @@ const Estoque = require('./Estoque')
+ const Pedido = require('./Pedido')
+ const ItemPedido = require('./ItemPedido')
+ const Entrega = require('./Entrega')
++const Oportunidade = require('./Oportunidade')
+ 
+ // Categoria -> Servico
+ Categoria.hasMany(Servico, {
+@@ -90,4 +91,15 @@ Entrega.belongsTo(Pedido, {
+     allowNull: false
+ })
+ 
+-module.exports = { Usuario, Categoria, Servico, Estoque, Pedido, ItemPedido, Entrega }
++// Categoria (tipo RAMO) -> Oportunidade
++Categoria.hasMany(Oportunidade, {
++    foreignKey: 'idCategoria',
++    as: 'oportunidadesCategoria',
++    onDelete: 'SET NULL'
++})
++Oportunidade.belongsTo(Categoria, {
++    foreignKey: 'idCategoria',
++    as: 'categoriaOportunidade'
++})
++
++module.exports = { Usuario, Categoria, Servico, Estoque, Pedido, ItemPedido, Entrega, Oportunidade }
+diff --git a/src/services/classificacao.service.js b/src/services/classificacao.service.js
+new file mode 100644
+index 0000000..d2b87c1
+--- /dev/null
++++ b/src/services/classificacao.service.js
+@@ -0,0 +1,53 @@
++const { RAMOS, RAMO_PADRAO } = require('../../config/palavrasChave')
++const { normalizar, criarRegexTermo } = require('../utils/texto')
++
++// Regex pré-compiladas uma única vez
++const RAMOS_COMPILADOS = RAMOS.map(ramo => ({
++    nome: ramo.nome,
++    termos: ramo.palavras.map(p => ({
++        regex: criarRegexTermo(p),
++        peso: normalizar(p).includes(' ') ? 2 : 1 // expressões compostas valem mais
++    }))
++}))
++
++// Devolve { ramo, pontuacao }. Maior pontuação vence; empate segue a ordem do config.
++function classificarObjeto(objeto) {
++    const texto = normalizar(objeto)
++    if (!texto) return { ramo: RAMO_PADRAO.nome, pontuacao: 0 }
++
++    let melhor = { ramo: RAMO_PADRAO.nome, pontuacao: 0 }
++    for (const ramo of RAMOS_COMPILADOS) {
++        let pontos = 0
++        for (const termo of ramo.termos) {
++            const ocorrencias = texto.match(termo.regex)
++            if (ocorrencias) pontos += Math.min(ocorrencias.length, 3) * termo.peso
++        }
++        if (pontos > melhor.pontuacao) melhor = { ramo: ramo.nome, pontuacao: pontos }
++    }
++    return melhor
++}
++
++// Cache nome do ramo -> codCategoria (evita consultar o banco a cada licitação)
++const cacheCategorias = new Map()
++
++// Garante que o ramo existe na tabela Categoria (tipo RAMO) e devolve o id.
++async function obterCategoriaDoRamo(nomeRamo) {
++    if (cacheCategorias.has(nomeRamo)) return cacheCategorias.get(nomeRamo)
++
++    const Categoria = require('../models/Categoria')
++    const descricao = (RAMOS.find(r => r.nome === nomeRamo) || RAMO_PADRAO).descricao
++    const [categoria] = await Categoria.findOrCreate({
++        where: { nome: nomeRamo, tipo: 'RAMO' },
++        defaults: { nome: nomeRamo, tipo: 'RAMO', descricao }
++    })
++    cacheCategorias.set(nomeRamo, categoria.codCategoria)
++    return categoria.codCategoria
++}
++
++function limparCache() { cacheCategorias.clear() }
++
++function listarRamos() {
++    return [...RAMOS.map(r => ({ nome: r.nome, descricao: r.descricao })), RAMO_PADRAO]
++}
++
++module.exports = { classificarObjeto, obterCategoriaDoRamo, listarRamos, limparCache }
+diff --git a/src/services/enquadramento.service.js b/src/services/enquadramento.service.js
+new file mode 100644
+index 0000000..592030a
+--- /dev/null
++++ b/src/services/enquadramento.service.js
+@@ -0,0 +1,90 @@
++const { LIMITES, SELOS, PRIORIDADE_SELO_PRINCIPAL } = require('../../config/limitesLicitacao')
++const { normalizar } = require('../utils/texto')
++
++const RAMO_OBRAS = 'Obras e Engenharia'
++const RAMO_VEICULOS = 'Veículos e Combustíveis'
++
++// Termos que indicam serviço técnico especializado (natureza predominantemente intelectual).
++const TERMOS_SERVICO_TECNICO = ['consultoria', 'assessoria', 'auditoria', 'pericia', 'parecer tecnico',
++    'treinamento', 'estudo tecnico', 'projeto basico', 'projeto executivo', 'servicos tecnicos especializados',
++    'servico tecnico especializado', 'fiscalizacao de obra', 'gerenciamento de obra']
++
++function dentroDoLimite(valor, limite) {
++    const v = LIMITES.itens[limite]
++    if (v.comparador === 'menor') return valor < v.valor
++    if (v.comparador === 'menorIgual') return valor <= v.valor
++    return valor > v.valor
++}
++
++// Retorna a lista de códigos de selo que se aplicam ao processo.
++//  valor : valor_estimado (number)   ramo : nome do ramo classificado   objeto : texto do objeto
++function calcularCodigos({ valor, ramo, objeto }) {
++    if (valor === null || valor === undefined || !Number.isFinite(Number(valor))) return []
++    const v = Number(valor)
++    const texto = normalizar(objeto)
++    const codigos = []
++
++    if (dentroDoLimite(v, 'GRANDE_VULTO')) codigos.push('GRANDE_VULTO')
++
++    // O limite de dispensa depende do tipo de objeto: obras/engenharia x demais.
++    const limiteDispensa = ramo === RAMO_OBRAS ? 'DISPENSA_OBRAS' : 'DISPENSA_OUTROS'
++    if (dentroDoLimite(v, limiteDispensa)) codigos.push('DISPENSA')
++
++    if (dentroDoLimite(v, 'SERVICO_TECNICO_ESPECIALIZADO') && TERMOS_SERVICO_TECNICO.some(t => texto.includes(t))) {
++        codigos.push('SERVICO_TECNICO_ESPECIALIZADO')
++    }
++
++    if (dentroDoLimite(v, 'EXCLUSIVO_ME_EPP')) codigos.push('EXCLUSIVO_ME_EPP')
++
++    if (ramo === RAMO_VEICULOS && texto.includes('manutencao') && dentroDoLimite(v, 'MANUTENCAO_VEICULOS')) {
++        codigos.push('MANUTENCAO_VEICULOS')
++    }
++
++    if (dentroDoLimite(v, 'CONTRATO_VERBAL')) codigos.push('CONTRATO_VERBAL')
++
++    return codigos
++}
++
++function escolherPrincipal(codigos) {
++    return PRIORIDADE_SELO_PRINCIPAL.find(c => codigos.includes(c)) || null
++}
++
++// Enquadramento completo para gravar no banco.
++function enquadrar(dados) {
++    const codigos = calcularCodigos(dados)
++    return {
++        codigos,
++        principal: escolherPrincipal(codigos),
++        // ",DISPENSA,EXCLUSIVO_ME_EPP," permite filtrar com LIKE '%,CODIGO,%'
++        texto: codigos.length ? `,${codigos.join(',')},` : null
++    }
++}
++
++function limiteDoCodigo(codigo, ramo) {
++    if (codigo === 'DISPENSA') return LIMITES.itens[ramo === RAMO_OBRAS ? 'DISPENSA_OBRAS' : 'DISPENSA_OUTROS']
++    return LIMITES.itens[codigo]
++}
++
++// Transforma os códigos gravados no banco em objetos prontos para a interface.
++function descreverSelos(textoSelos, ramo) {
++    const codigos = String(textoSelos || '').split(',').filter(Boolean)
++    return codigos.map(codigo => {
++        const meta = SELOS[codigo] || { rotulo: codigo, cor: 'cinza', emoji: '⚪' }
++        const limite = limiteDoCodigo(codigo, ramo)
++        return {
++            codigo,
++            rotulo: meta.rotulo,
++            cor: meta.cor,
++            emoji: meta.emoji,
++            baseLegal: limite ? limite.baseLegal : null,
++            limite: limite ? limite.valor : null,
++            indicativo: codigo === 'SERVICO_TECNICO_ESPECIALIZADO'
++        }
++    })
++}
++
++function listarSelosDisponiveis() {
++    return Object.entries(SELOS).map(([codigo, meta]) => ({ codigo, ...meta }))
++}
++
++module.exports = { calcularCodigos, enquadrar, escolherPrincipal, descreverSelos, listarSelosDisponiveis, RAMO_OBRAS, RAMO_VEICULOS }
+diff --git a/src/services/sincronizacaoMunicipal.service.js b/src/services/sincronizacaoMunicipal.service.js
+new file mode 100644
+index 0000000..a8056cb
+--- /dev/null
++++ b/src/services/sincronizacaoMunicipal.service.js
+@@ -0,0 +1,146 @@
++const axios = require('axios')
++const Oportunidade = require('../models/Oportunidade')
++const { paraValor, paraData } = require('../utils/conversores')
++const { normalizar } = require('../utils/texto')
++const { classificarObjeto, obterCategoriaDoRamo } = require('./classificacao.service')
++const { enquadrar } = require('./enquadramento.service')
++
++const URL_BASE = () => process.env.API_LICITACOES_URL || 'https://api-licitacoes-production.up.railway.app'
++const TIMEOUT_MS = 20000
++const TAMANHO_PAGINA = 100
++const MAX_PAGINAS = 200 // trava de segurança contra loop infinito
++
++const MUNICIPIO_PADRAO = 'Tijucas'
++const UF_PADRAO = 'SC'
++
++// Lê um campo aceitando variações de nome: unidade_gestora, unidadeGestora, "Unidade Gestora"...
++function pegar(bruto, nomes) {
++    const mapa = {}
++    for (const k of Object.keys(bruto)) mapa[k.toLowerCase().replace(/[^a-z0-9]/g, '')] = bruto[k]
++    for (const nome of nomes) {
++        const v = mapa[nome.toLowerCase().replace(/[^a-z0-9]/g, '')]
++        if (v !== undefined && v !== null && v !== '') return v
++    }
++    return null
++}
++
++// Converte um registro da API de Tijucas para o formato do model Oportunidade.
++function mapearLicitacao(bruto) {
++    const numero = pegar(bruto, ['licitacao_numero', 'licitacaoNumero', 'numero', 'numero_licitacao'])
++    const ano = pegar(bruto, ['licitacao_ano', 'licitacaoAno', 'ano', 'ano_licitacao'])
++    const unidade = pegar(bruto, ['unidade_gestora', 'unidadeGestora', 'orgao'])
++    const objeto = pegar(bruto, ['objeto'])
++
++    if (numero === null || ano === null) return null // sem identificação não dá para deduplicar
++
++    return {
++        chaveExterna: [normalizar(unidade || 'sem-unidade'), String(numero).trim(), String(ano).trim()].join('|'),
++        numero: String(numero).trim(),
++        ano: Number(ano) || null,
++        objeto: objeto ? String(objeto) : null,
++        unidadeGestora: unidade ? String(unidade) : null,
++        modalidade: pegar(bruto, ['modalidade']),
++        tipoConcorrencia: pegar(bruto, ['tipo_concorrencia', 'tipoConcorrencia']),
++        situacao: pegar(bruto, ['situacao']),
++        valorEstimado: paraValor(pegar(bruto, ['valor_estimado', 'valorEstimado'])),
++        valorHomologado: paraValor(pegar(bruto, ['valor_homologado', 'valorHomologado'])),
++        dataEdital: paraData(pegar(bruto, ['data_edital', 'dataEdital'])),
++        dataAbertura: paraData(pegar(bruto, ['abertura_propostas', 'aberturaPropostas', 'abertura_sessao', 'aberturaSessao'])),
++        dataHomologacao: paraData(pegar(bruto, ['data_homologacao', 'dataHomologacao']))
++    }
++}
++
++function extrairLista(corpo) {
++    if (Array.isArray(corpo)) return corpo
++    if (corpo && typeof corpo === 'object') {
++        for (const chave of ['data', 'licitacoes', 'results', 'items', 'dados']) {
++            if (Array.isArray(corpo[chave])) return corpo[chave]
++        }
++    }
++    return null
++}
++
++// Busca todas as páginas da API de Tijucas.
++async function buscarTodas() {
++    const todas = []
++    const vistas = new Set()
++
++    for (let pagina = 1; pagina <= MAX_PAGINAS; pagina++) {
++        let resposta
++        try {
++            resposta = await axios.get(`${URL_BASE()}/licitacoes`, {
++                params: { page: pagina, limit: TAMANHO_PAGINA },
++                timeout: TIMEOUT_MS
++            })
++        } catch (err) {
++            const erro = new Error('API de licitações indisponível ou sem resposta')
++            erro.codigo = 'API_INDISPONIVEL'
++            erro.causa = err
++            throw erro
++        }
++
++        const lista = extrairLista(resposta.data)
++        if (!lista) {
++            const erro = new Error('Resposta inválida da API de licitações')
++            erro.codigo = 'RESPOSTA_INVALIDA'
++            throw erro
++        }
++        if (lista.length === 0) break
++
++        let novos = 0
++        for (const item of lista) {
++            const id = JSON.stringify(item)
++            if (!vistas.has(id)) { vistas.add(id); todas.push(item); novos++ }
++        }
++        // a API ignorou a paginação (devolveu os mesmos registros) ou não há mais páginas
++        if (novos === 0) break
++    }
++    return todas
++}
++
++// Grava/atualiza uma licitação classificando e enquadrando. Retorna 'criada' | 'atualizada'.
++async function gravar(dados) {
++    const { ramo } = classificarObjeto(dados.objeto)
++    const idCategoria = await obterCategoriaDoRamo(ramo)
++    const enq = enquadrar({ valor: dados.valorEstimado, ramo, objeto: dados.objeto })
++
++    const registro = {
++        ...dados,
++        origem: 'MUNICIPAL',
++        municipio: MUNICIPIO_PADRAO,
++        uf: UF_PADRAO,
++        idCategoria,
++        selos: enq.texto,
++        seloPrincipal: enq.principal
++    }
++
++    const existente = await Oportunidade.findOne({ where: { origem: 'MUNICIPAL', chaveExterna: dados.chaveExterna } })
++    if (existente) {
++        await existente.update(registro)
++        return 'atualizada'
++    }
++    await Oportunidade.create(registro)
++    return 'criada'
++}
++
++// Sincroniza a base local com a API de Tijucas.
++async function sincronizar() {
++    const brutos = await buscarTodas()
++    const resumo = { recebidas: brutos.length, criadas: 0, atualizadas: 0, ignoradas: 0, erros: 0 }
++
++    for (const bruto of brutos) {
++        const dados = mapearLicitacao(bruto)
++        if (!dados) { resumo.ignoradas++; continue }
++        try {
++            const resultado = await gravar(dados)
++            if (resultado === 'criada') resumo.criadas++
++            else resumo.atualizadas++
++        } catch (err) {
++            resumo.erros++
++            console.error('Erro ao gravar oportunidade', dados.chaveExterna, err)
++        }
++    }
++    return resumo
++}
++
++module.exports = { sincronizar, mapearLicitacao, buscarTodas, pegar }
+diff --git a/src/utils/conversores.js b/src/utils/conversores.js
+new file mode 100644
+index 0000000..5b22d95
+--- /dev/null
++++ b/src/utils/conversores.js
+@@ -0,0 +1,48 @@
++// Converte valores vindos de fontes externas (API de Tijucas, PNCP) para tipos do banco.
++
++// Aceita number, "1234.56", "1.234,56" e "R$ 1.234,56". Retorna number ou null.
++function paraValor(entrada) {
++    if (entrada === null || entrada === undefined || entrada === '') return null
++    if (typeof entrada === 'number') return Number.isFinite(entrada) ? entrada : null
++
++    let t = String(entrada).replace(/[^\d,.\-]/g, '')
++    if (!t) return null
++
++    const temVirgula = t.includes(',')
++    const temPonto = t.includes('.')
++    if (temVirgula && temPonto) {
++        // o separador decimal é o que aparece por último
++        if (t.lastIndexOf(',') > t.lastIndexOf('.')) t = t.replace(/\./g, '').replace(',', '.')
++        else t = t.replace(/,/g, '')
++    } else if (temVirgula) {
++        t = t.replace(',', '.')
++    }
++    const n = Number(t)
++    return Number.isFinite(n) ? n : null
++}
++
++// Aceita ISO (2026-03-05, 2026-03-05T10:00:00Z) e dd/mm/aaaa [hh:mm]. Retorna Date ou null.
++function paraData(entrada) {
++    if (!entrada) return null
++    if (entrada instanceof Date) return isNaN(entrada) ? null : entrada
++
++    const s = String(entrada).trim()
++    const br = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2}))?/)
++    if (br) {
++        const [, d, m, a, h = '0', min = '0'] = br
++        const data = new Date(Date.UTC(Number(a), Number(m) - 1, Number(d), Number(h), Number(min)))
++        return isNaN(data) || data.getUTCDate() !== Number(d) ? null : data
++    }
++
++    const iso = new Date(s)
++    return isNaN(iso) ? null : iso
++}
++
++// Valida "AAAA-MM-DD" vindo de query string. Retorna Date (UTC) ou null.
++function paraDataFiltro(entrada, fimDoDia = false) {
++    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(entrada || ''))) return null
++    const data = new Date(`${entrada}T${fimDoDia ? '23:59:59.999' : '00:00:00.000'}Z`)
++    return isNaN(data) ? null : data
++}
++
++module.exports = { paraValor, paraData, paraDataFiltro }
+diff --git a/src/utils/texto.js b/src/utils/texto.js
+new file mode 100644
+index 0000000..49fd2f5
+--- /dev/null
++++ b/src/utils/texto.js
+@@ -0,0 +1,23 @@
++// Normaliza texto para comparação: minúsculas, sem acento, espaços simples.
++function normalizar(texto) {
++    return String(texto || '')
++        .normalize('NFD')
++        .replace(/[\u0300-\u036f]/g, '')
++        .toLowerCase()
++        .replace(/\s+/g, ' ')
++        .trim()
++}
++
++function escaparRegex(t) {
++    return t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
++}
++
++// Termos curtos (<= 3 letras) só casam como palavra inteira; os demais
++// casam no início de palavra (aceita plural/flexões: "medicamento" -> "medicamentos").
++function criarRegexTermo(termo) {
++    const t = escaparRegex(normalizar(termo))
++    const fim = t.length <= 3 ? '(?![a-z0-9])' : ''
++    return new RegExp(`(?<![a-z0-9])${t}${fim}`, 'g')
++}
++
++module.exports = { normalizar, criarRegexTermo }
+diff --git a/test/inteligencia.test.js b/test/inteligencia.test.js
+new file mode 100644
+index 0000000..854dfe9
+--- /dev/null
++++ b/test/inteligencia.test.js
+@@ -0,0 +1,262 @@
++const { test, before, after, afterEach } = require('node:test')
++const assert = require('node:assert/strict')
++const jwt = require('jsonwebtoken')
++const axios = require('axios')
++
++process.env.JWT_SECRET = 'segredo-exclusivo-para-testes-automatizados'
++
++const app = require('../index')
++const Oportunidade = require('../src/models/Oportunidade')
++const Categoria = require('../src/models/Categoria')
++const enq = require('../src/services/enquadramento.service')
++const { classificarObjeto, limparCache } = require('../src/services/classificacao.service')
++const sincronizacao = require('../src/services/sincronizacaoMunicipal.service')
++const { paraValor, paraData } = require('../src/utils/conversores')
++const { LIMITES } = require('../config/limitesLicitacao')
++
++let server, baseUrl
++const originals = new Map()
++
++function stub(object, method, implementation) {
++  if (!originals.has(object)) originals.set(object, new Map())
++  const methods = originals.get(object)
++  if (!methods.has(method)) methods.set(method, object[method])
++  object[method] = implementation
++}
++function restoreStubs() {
++  for (const [object, methods] of originals) for (const [m, impl] of methods) object[m] = impl
++  originals.clear()
++}
++async function request(path, options = {}) {
++  const response = await fetch(`${baseUrl}${path}`, { ...options, headers: { 'content-type': 'application/json', ...options.headers } })
++  const text = await response.text()
++  return { status: response.status, body: text ? JSON.parse(text) : null }
++}
++const token = (tipo) => jwt.sign({ codUsuario: 1, tipo }, process.env.JWT_SECRET, { expiresIn: '1h' })
++
++before(async () => {
++  await new Promise((resolve) => { server = app.listen(0, '127.0.0.1', resolve) })
++  baseUrl = `http://127.0.0.1:${server.address().port}`
++})
++afterEach(() => { restoreStubs(); limparCache() })
++after(async () => new Promise((resolve) => server.close(resolve)))
++
++// ---------- limites centralizados ----------
++
++test('limites de 2026 estão centralizados com os valores do decreto', () => {
++  assert.equal(LIMITES.vigencia, 2026)
++  assert.equal(LIMITES.itens.DISPENSA_OBRAS.valor, 130984.20)
++  assert.equal(LIMITES.itens.DISPENSA_OUTROS.valor, 65492.11)
++  assert.equal(LIMITES.itens.SERVICO_TECNICO_ESPECIALIZADO.valor, 392952.63)
++  assert.equal(LIMITES.itens.CONTRATO_VERBAL.valor, 13098.41)
++  assert.equal(LIMITES.itens.MANUTENCAO_VEICULOS.valor, 10478.74)
++  assert.equal(LIMITES.itens.GRANDE_VULTO.valor, 261968421.04)
++  assert.equal(LIMITES.itens.EXCLUSIVO_ME_EPP.valor, 80000)
++})
++
++// ---------- enquadramento ----------
++
++test('enquadramento: dispensa de outras compras usa o limite de R$ 65.492,11 (exclusivo)', () => {
++  assert.ok(enq.calcularCodigos({ valor: 65492.10, ramo: 'Saúde', objeto: 'x' }).includes('DISPENSA'))
++  assert.ok(!enq.calcularCodigos({ valor: 65492.11, ramo: 'Saúde', objeto: 'x' }).includes('DISPENSA'))
++})
++
++test('enquadramento: obras e engenharia usam o limite de R$ 130.984,20', () => {
++  const obra = (valor) => enq.calcularCodigos({ valor, ramo: 'Obras e Engenharia', objeto: 'reforma' })
++  assert.ok(obra(100000).includes('DISPENSA'))
++  assert.ok(!obra(130984.20).includes('DISPENSA'))
++  // o mesmo valor em outro ramo NÃO é dispensa
++  assert.ok(!enq.calcularCodigos({ valor: 100000, ramo: 'Saúde', objeto: 'x' }).includes('DISPENSA'))
++})
++
++test('enquadramento: exclusivo ME/EPP até R$ 80.000 (inclusive) e pode coexistir com dispensa', () => {
++  assert.deepEqual(enq.calcularCodigos({ valor: 80000, ramo: 'Saúde', objeto: 'x' }), ['EXCLUSIVO_ME_EPP'])
++  assert.ok(!enq.calcularCodigos({ valor: 80000.01, ramo: 'Saúde', objeto: 'x' }).includes('EXCLUSIVO_ME_EPP'))
++  const ambos = enq.calcularCodigos({ valor: 50000, ramo: 'Saúde', objeto: 'x' })
++  assert.ok(ambos.includes('DISPENSA') && ambos.includes('EXCLUSIVO_ME_EPP'))
++})
++
++test('enquadramento: grande vulto só acima de R$ 261.968.421,04', () => {
++  assert.ok(!enq.calcularCodigos({ valor: 261968421.04, ramo: 'Outros', objeto: 'x' }).includes('GRANDE_VULTO'))
++  assert.ok(enq.calcularCodigos({ valor: 261968421.05, ramo: 'Outros', objeto: 'x' }).includes('GRANDE_VULTO'))
++})
++
++test('enquadramento: serviço técnico especializado exige termo no objeto e valor dentro do limite', () => {
++  const base = { ramo: 'Outros' }
++  assert.ok(enq.calcularCodigos({ ...base, valor: 300000, objeto: 'Contratação de consultoria jurídica' }).includes('SERVICO_TECNICO_ESPECIALIZADO'))
++  assert.ok(!enq.calcularCodigos({ ...base, valor: 300000, objeto: 'Compra de cadeiras' }).includes('SERVICO_TECNICO_ESPECIALIZADO'))
++  assert.ok(!enq.calcularCodigos({ ...base, valor: 400000, objeto: 'consultoria' }).includes('SERVICO_TECNICO_ESPECIALIZADO'))
++})
++
++test('enquadramento: sem valor estimado não há selo', () => {
++  assert.deepEqual(enq.calcularCodigos({ valor: null, ramo: 'Saúde', objeto: 'x' }), [])
++  assert.equal(enq.enquadrar({ valor: null, ramo: 'Saúde', objeto: 'x' }).principal, null)
++})
++
++test('enquadramento: selo principal segue a prioridade e o texto permite filtro por LIKE', () => {
++  const r = enq.enquadrar({ valor: 50000, ramo: 'Saúde', objeto: 'x' })
++  assert.equal(r.principal, 'DISPENSA')
++  assert.ok(r.texto.includes(',EXCLUSIVO_ME_EPP,'))
++  const selos = enq.descreverSelos(r.texto, 'Saúde')
++  assert.equal(selos[0].emoji, '🟢')
++  assert.equal(selos[0].limite, 65492.11)
++})
++
++// ---------- classificação ----------
++
++test('classificação por ramo usando palavras-chave do objeto', () => {
++  const casos = [
++    ['Aquisição de computadores e notebook para a secretaria', 'Tecnologia da Informação'],
++    ['Compra de medicamentos para o hospital municipal', 'Saúde'],
++    ['Pavimentação asfáltica com fornecimento de cimento', 'Obras e Engenharia'],
++    ['Fornecimento de combustível diesel e gasolina', 'Veículos e Combustíveis'],
++    ['Aquisição de gêneros alimentícios para merenda', 'Alimentação'],
++    ['Material de limpeza e higienização', 'Limpeza e Conservação'],
++    ['Aquisição de material escolar', 'Educação'],
++    ['Serviço de vigilância e monitoramento por câmeras', 'Segurança'],
++    ['Locação de palco para evento cultural', 'Outros']
++  ]
++  for (const [objeto, esperado] of casos) assert.equal(classificarObjeto(objeto).ramo, esperado, objeto)
++})
++
++test('classificação ignora acentos/maiúsculas e "TI" só casa como palavra inteira', () => {
++  assert.equal(classificarObjeto('MEDICAMENTOS HOSPITALARES').ramo, 'Saúde')
++  assert.equal(classificarObjeto('Serviços de TI').ramo, 'Tecnologia da Informação')
++  assert.equal(classificarObjeto('Gestão e atividades administrativas').ramo, 'Outros')
++  assert.equal(classificarObjeto('').ramo, 'Outros')
++})
++
++// ---------- conversores e mapeamento ----------
++
++test('conversores aceitam formatos brasileiros de valor e data', () => {
++  assert.equal(paraValor('R$ 1.234,56'), 1234.56)
++  assert.equal(paraValor('1234.56'), 1234.56)
++  assert.equal(paraValor('65.492,11'), 65492.11)
++  assert.equal(paraValor(''), null)
++  assert.equal(paraValor('abc'), null)
++  assert.equal(paraData('05/03/2026').toISOString().slice(0, 10), '2026-03-05')
++  assert.equal(paraData('31/02/2026'), null)
++  assert.equal(paraData('2026-03-05').toISOString().slice(0, 10), '2026-03-05')
++})
++
++test('mapearLicitacao aceita variações de nome e descarta registro sem número/ano', () => {
++  const m = sincronizacao.mapearLicitacao({
++    Modalidade: 'Pregão Eletrônico', licitacao_numero: '12', licitacao_ano: 2026,
++    unidade_gestora: 'Prefeitura Municipal de Tijucas', objeto: 'Compra de notebook',
++    valor_estimado: '45.000,00', valor_homologado: 40000, data_edital: '10/02/2026'
++  })
++  assert.equal(m.numero, '12')
++  assert.equal(m.valorEstimado, 45000)
++  assert.equal(m.valorHomologado, 40000)
++  assert.equal(m.dataEdital.toISOString().slice(0, 10), '2026-02-10')
++  assert.equal(sincronizacao.mapearLicitacao({ objeto: 'sem identificação' }), null)
++})
++
++test('sincronização grava classificando e enquadrando, sem duplicar', async () => {
++  const criadas = []
++  stub(axios, 'get', async () => ({
++    data: { data: [
++      { licitacao_numero: '1', licitacao_ano: 2026, unidade_gestora: 'Prefeitura', objeto: 'Compra de computadores', valor_estimado: 50000 },
++      { licitacao_numero: '2', licitacao_ano: 2026, unidade_gestora: 'Prefeitura', objeto: 'Reforma de escola', valor_estimado: 120000 },
++      { objeto: 'sem número' }
++    ] }
++  }))
++  stub(Categoria, 'findOrCreate', async ({ where }) => [{ codCategoria: where.nome.length }])
++  stub(Oportunidade, 'findOne', async ({ where }) => (where.chaveExterna.endsWith('|2|2026') ? { update: async () => {} } : null))
++  stub(Oportunidade, 'create', async (dados) => { criadas.push(dados) })
++
++  const resumo = await sincronizacao.sincronizar()
++  assert.deepEqual(resumo, { recebidas: 3, criadas: 1, atualizadas: 1, ignoradas: 1, erros: 0 })
++  assert.equal(criadas[0].origem, 'MUNICIPAL')
++  assert.equal(criadas[0].uf, 'SC')
++  assert.equal(criadas[0].seloPrincipal, 'DISPENSA')
++  assert.ok(criadas[0].selos.includes(',EXCLUSIVO_ME_EPP,'))
++})
++
++test('sincronização trata API indisponível com código próprio', async () => {
++  stub(axios, 'get', async () => { throw new Error('timeout') })
++  await assert.rejects(sincronizacao.sincronizar(), (e) => e.codigo === 'API_INDISPONIVEL')
++})
++
++// ---------- endpoints ----------
++
++test('filtros combinam ramo + estado + faixa de valor + situação e paginam', async () => {
++  let argumentos
++  stub(Oportunidade, 'findAndCountAll', async (a) => { argumentos = a; return { rows: [], count: 0 } })
++
++  const r = await request('/api/licitacoes/filtros?ramo=Tecnologia%20da%20Informa%C3%A7%C3%A3o&uf=sc&valorMin=10000&valorMax=100000&situacao=Aberta&enquadramento=DISPENSA,EXCLUSIVO_ME_EPP&limite=500&pagina=2')
++  assert.equal(r.status, 200)
++  const { where } = argumentos
++  assert.equal(where.uf, 'SC')
++  assert.equal(where.situacao, 'Aberta')
++  assert.equal(Object.getOwnPropertySymbols(where.valorEstimado).length, 2)
++  assert.equal(argumentos.include[0].where.nome, 'Tecnologia da Informação')
++  assert.equal(argumentos.limit, 100) // limite máximo
++  assert.equal(argumentos.offset, 100) // página 2
++  assert.equal(r.body.paginacao.pagina, 2)
++})
++
++test('filtros rejeitam valores, datas, uf e enquadramento inválidos', async () => {
++  stub(Oportunidade, 'findAndCountAll', async () => ({ rows: [], count: 0 }))
++  for (const q of ['valorMin=abc', 'publicacaoDe=10/02/2026', 'uf=SCC', 'enquadramento=INVENTADO', 'categoria=x', 'origem=XYZ']) {
++    const r = await request(`/api/licitacoes/filtros?${q}`)
++    assert.equal(r.status, 400, q)
++  }
++})
++
++test('listagem devolve selos prontos e economia calculada no backend', async () => {
++  stub(Oportunidade, 'findAndCountAll', async () => ({
++    count: 1,
++    rows: [{ toJSON: () => ({
++      codOportunidade: 7, origem: 'MUNICIPAL', numero: '1', ano: 2026, objeto: 'Compra de notebook',
++      valorEstimado: '50000.00', valorHomologado: '45000.00', selos: ',DISPENSA,EXCLUSIVO_ME_EPP,', seloPrincipal: 'DISPENSA',
++      categoriaOportunidade: { codCategoria: 3, nome: 'Tecnologia da Informação' }
++    }) }]
++  }))
++  const r = await request('/api/licitacoes/filtros')
++  const item = r.body.dados[0]
++  assert.equal(item.economia, 5000)
++  assert.equal(item.percentualEconomia, 10)
++  assert.equal(item.selos[0].codigo, 'DISPENSA')
++  assert.equal(item.categoria.nome, 'Tecnologia da Informação')
++})
++
++test('opções de filtro devolvem ramos, enquadramentos e valores distintos', async () => {
++  // cada consulta DISTINCT devolve [{ <campo>: valor }]; o nome do campo é o alias da coluna
++  stub(Oportunidade, 'findAll', async ({ attributes }) => [{ [attributes[0][1]]: 2026 }])
++  stub(Categoria, 'findAll', async () => [{ codCategoria: 1, nome: 'Saúde' }])
++  const r = await request('/api/licitacoes/filtros/opcoes')
++  assert.equal(r.status, 200)
++  assert.equal(r.body.ramos[0].nome, 'Saúde')
++  assert.ok(r.body.enquadramentos.some(s => s.codigo === 'GRANDE_VULTO'))
++})
++
++test('detalhe da oportunidade: 400 para id inválido e 404 quando não existe', async () => {
++  stub(Oportunidade, 'findByPk', async () => null)
++  assert.equal((await request('/api/oportunidades/abc')).status, 400)
++  assert.equal((await request('/api/oportunidades/99')).status, 404)
++})
++
++test('sincronizar é restrito a administradores', async () => {
++  assert.equal((await request('/api/oportunidades/sincronizar', { method: 'POST' })).status, 401)
++  const cliente = await request('/api/oportunidades/sincronizar', { method: 'POST', headers: { authorization: `Bearer ${token('CLIENTE')}` } })
++  assert.equal(cliente.status, 403)
++
++  stub(sincronizacao, 'sincronizar', async () => ({ recebidas: 0, criadas: 0, atualizadas: 0, ignoradas: 0, erros: 0 }))
++  const admin = await request('/api/oportunidades/sincronizar', { method: 'POST', headers: { authorization: `Bearer ${token('ADMIN')}` } })
++  assert.equal(admin.status, 200)
++})
++
++test('sincronizar responde 502 amigável quando a API de licitações cai', async () => {
++  stub(sincronizacao, 'sincronizar', async () => { const e = new Error('x'); e.codigo = 'API_INDISPONIVEL'; throw e })
++  const r = await request('/api/oportunidades/sincronizar', { method: 'POST', headers: { authorization: `Bearer ${token('ADMIN')}` } })
++  assert.equal(r.status, 502)
++})
++
++test('catálogo de categorias lista apenas tipo SERVICO por padrão; ?tipo=RAMO lista ramos', async () => {
++  const consultas = []
++  stub(Categoria, 'findAll', async (a) => { consultas.push(a.where.tipo); return [] })
++  await request('/categorias')
++  await request('/categorias?tipo=RAMO')
++  assert.deepEqual(consultas, ['SERVICO', 'RAMO'])
++})

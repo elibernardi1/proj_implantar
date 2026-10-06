@@ -5,6 +5,7 @@ const Estoque = require('./Estoque')
 const Pedido = require('./Pedido')
 const ItemPedido = require('./ItemPedido')
 const Entrega = require('./Entrega')
+const Oportunidade = require('./Oportunidade')
 
 // Categoria -> Servico
 Categoria.hasMany(Servico, {
@@ -90,4 +91,15 @@ Entrega.belongsTo(Pedido, {
     allowNull: false
 })
 
-module.exports = { Usuario, Categoria, Servico, Estoque, Pedido, ItemPedido, Entrega }
+// Categoria (tipo RAMO) -> Oportunidade
+Categoria.hasMany(Oportunidade, {
+    foreignKey: 'idCategoria',
+    as: 'oportunidadesCategoria',
+    onDelete: 'SET NULL'
+})
+Oportunidade.belongsTo(Categoria, {
+    foreignKey: 'idCategoria',
+    as: 'categoriaOportunidade'
+})
+
+module.exports = { Usuario, Categoria, Servico, Estoque, Pedido, ItemPedido, Entrega, Oportunidade }
